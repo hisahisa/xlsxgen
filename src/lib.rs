@@ -100,7 +100,6 @@ impl DataGenerator  {
                     Ok(Event::Eof) => {
                         let val = c_list.join("\n");
                         tx1.send(val).unwrap();
-                        drop(c_list);
                         break;
                     }
                     Err(e) => {
