@@ -23,8 +23,6 @@ with open(file_name, 'rb') as file_obj:
         generator = xlsxgen.DataGenerator()
         generator.process_bytes(10000, bytes_obj, bytes_solve_obj)
         while True:
-            memory_info = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-            print(f"Max RSS: {memory_info} kilobytes")
             csv_data = generator.generate_data_chunk()
             if csv_data == "finish":
                 print(csv_data)
@@ -35,7 +33,7 @@ with open(file_name, 'rb') as file_obj:
                 #print(df)
 
 memory_info = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-print(f"Max RSS: {memory_info} kilobytes")
+print(f"Max RSS: {memory_info / 1024 / 1024} MB")
 
 end_time = time.perf_counter()
 # 経過時間を出力(秒)
