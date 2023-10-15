@@ -28,7 +28,10 @@ impl DataGenerator  {
         }
     }
 
-    fn process_bytes(&self, chunk: u32, content: Vec<u8>, str_content: Vec<u8>) {
+    fn process_bytes(&self, chunk: u32, content_: &[u8], str_content_: &[u8]) {
+
+        let content = content_.to_vec();
+        let str_content = str_content_.to_vec();
 
         let name_resolve = str_resolve(str_content);
         let mut buffer = Vec::new();
