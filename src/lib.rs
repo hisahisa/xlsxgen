@@ -111,6 +111,7 @@ impl DataGenerator  {
                     }
                     _ => {}
                 }
+                buffer.clear();
             }
             tx1.send(String::from("finish")).unwrap();
         };
@@ -154,6 +155,7 @@ fn str_resolve(content: Vec<u8>) ->  Vec<String> {
             }
             _ => {}
         }
+        buffer.clear();
     }
     name_resolve
 }

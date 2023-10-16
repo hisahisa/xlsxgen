@@ -1,4 +1,5 @@
 # xlsxgen
+  - pip install で xlsxgenのモジュールを落として、pythonコードを以下の通り記述する。
 
 # 使い方
 
