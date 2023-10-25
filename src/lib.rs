@@ -5,11 +5,13 @@ use std::thread;
 use std::sync::mpsc;
 use std::sync::mpsc::{Sender, Receiver};
 use pyo3::prelude::*;
+use regex::Regex;
 
 use quick_xml::Reader;
 use quick_xml::events::Event;
 use chrono::NaiveDateTime;
 use crate::structual::StructCsv;
+
 
 #[pyclass]
 struct DataGenerator {
@@ -36,28 +38,43 @@ impl DataGenerator  {
         let name_resolve = str_resolve(str_content);
         let mut buffer = Vec::new();
         let mut c_list: Vec<String> = Vec::new();
-        let mut row: Vec<StructCsv> = Vec::new();
+        let mut row_a: Vec<Option<StructCsv>> = Vec::new();
         let mut is_v = false;
         let mut s: Option<StructCsv> = None;
-        let target_attr = vec![115u8, 116u8];  // b"s", b"t"
+
+        // tag "dimension ref=\"xx:yy\"/" の属性取得
+        let dimension_tag = vec![100, 105, 109, 101, 110, 115, 105, 111, 110];
+
         let navi = create_navi();
         let tx1 = mpsc::Sender::clone(&self.pro);
         let mut count = 0;
         let closure = move || {
+            let mut width_len: Option<usize> = None;
             let mut xml_reader = Reader::from_reader(content.as_ref());
             loop {
                 match xml_reader.read_event_into(&mut buffer) {
                     Ok(Event::Start(e)) => {
                         match e.name().as_ref() {
                             b"c" => {
+                                let mut struct_csv = StructCsv::new();
                                 for i in e.attributes() {
                                     match i {
                                         Ok(x) => {
-                                            let a = if target_attr.
-                                                contains(&x.key.into_inner()[0]) {
-                                                x.key.into_inner()[0].clone()
-                                            } else { 0u8 };
-                                            s = Some(StructCsv::new(a));
+                                            match &x.key.into_inner() {
+                                                [115u8] | [116u8] => { // b"s", b"t"
+                                                    struct_csv.set_attr(
+                                                        x.key.into_inner()[0].clone());
+                                                }
+                                                [114u8] => { // b"r"
+                                                    let a = String::from_utf8_lossy(
+                                                        &*x.clone().value.into_owned()).
+                                                        into_owned();
+                                                    let b = column_to_number(a);
+                                                    struct_csv.set_r_attr_v(b - 1);
+                                                }
+                                                _ => {}
+                                            }
+                                            s = Some(struct_csv.clone());
                                         }
                                         Err(_) => {}
                                     }
@@ -70,8 +87,12 @@ impl DataGenerator  {
                     Ok(Event::End(e)) => {
                         match e.name().as_ref() {
                             b"row" => {
-                                let i = row.into_iter().map(|a| {
-                                    a.clone().get_value(&navi, &name_resolve)
+                                let i = row_a.into_iter().map(|a| {
+                                    match a {
+                                        Some(s) => s.clone().
+                                            get_value(&navi, &name_resolve),
+                                        None => "".to_string()
+                                    }
                                 }).collect::<Vec<String>>().join(",");
                                 c_list.push(i);
                                 count += 1;
@@ -81,7 +102,7 @@ impl DataGenerator  {
                                     count = 0;
                                     c_list = Vec::new();
                                 }
-                                row = Vec::new();
+                                row_a = vec![None; width_len.unwrap()];
                             },
                             _ => {},
                         }
@@ -92,7 +113,8 @@ impl DataGenerator  {
                                 Some(ref mut v) => {
                                     let val = e.unescape().unwrap().into_owned();
                                     v.set_value(val);
-                                    row.push(v.clone());
+                                    let i = v.get_r_attr_v();
+                                    row_a[i] = Some(v.clone());
                                     s = None;
                                 }
                                 None => {}
@@ -110,6 +132,19 @@ impl DataGenerator  {
                         break;
                     }
                     _ => {}
+                }
+
+                if buffer.starts_with(&dimension_tag){
+                    let re = Regex::new(r"[A-Za-z]+").unwrap();
+                    let dim_tag = String::from_utf8_lossy(&buffer).into_owned();
+                    let dim_tag_last = dim_tag.split(":").last().unwrap();
+
+                    if let Some(mat) = re.find(dim_tag_last) {
+                        let matched_str = mat.as_str().to_string();
+                        let idx_num = column_to_number(matched_str);
+                        row_a = vec![None; idx_num];
+                        width_len = Some(idx_num);
+                    }
                 }
                 buffer.clear();
             }
@@ -158,6 +193,14 @@ fn str_resolve(content: Vec<u8>) ->  Vec<String> {
         buffer.clear();
     }
     name_resolve
+}
+
+fn column_to_number(s: String) -> usize {
+    let column_index= s.to_uppercase().chars().into_iter().
+        filter(|a| a.is_ascii_uppercase()
+        ).map(|a| a as usize - 64).
+        reduce(|acc, x| acc * 26 + x).unwrap_or(0);
+    column_index
 }
 
 fn create_navi() -> NaiveDateTime {

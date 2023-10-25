@@ -3,15 +3,29 @@ use chrono::{Duration, NaiveDateTime};
 #[derive( Debug, Clone)]
 pub(crate) struct StructCsv {
     value: String,
-    attr: u8
+    attr: u8,
+    r_attr_v: usize
 }
 
 impl StructCsv {
-    pub(crate) fn new (attr: u8) -> StructCsv {
+    pub(crate) fn new () -> StructCsv {
         StructCsv{
             value: "".to_string(),
-            attr
+            attr: 0u8,
+            r_attr_v: 0
         }
+    }
+
+    pub(crate) fn set_attr(&mut self, val: u8) {
+        self.attr = val;
+    }
+
+    pub(crate) fn set_r_attr_v(&mut self, val: usize) {
+        self.r_attr_v = val;
+    }
+
+    pub(crate) fn get_r_attr_v(&self) -> usize {
+        self.r_attr_v.clone()
     }
 
     pub(crate) fn set_value(&mut self, val: String) {
