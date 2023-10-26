@@ -5,7 +5,6 @@ use std::thread;
 use std::sync::mpsc;
 use std::sync::mpsc::{Sender, Receiver};
 use pyo3::prelude::*;
-use regex::Regex;
 
 use quick_xml::Reader;
 use quick_xml::events::Event;
@@ -135,16 +134,11 @@ impl DataGenerator  {
                 }
 
                 if buffer.starts_with(&dimension_tag){
-                    let re = Regex::new(r"[A-Za-z]+").unwrap();
                     let dim_tag = String::from_utf8_lossy(&buffer).into_owned();
                     let dim_tag_last = dim_tag.split(":").last().unwrap();
-
-                    if let Some(mat) = re.find(dim_tag_last) {
-                        let matched_str = mat.as_str().to_string();
-                        let idx_num = column_to_number(matched_str);
-                        row_a = vec![None; idx_num];
-                        width_len = Some(idx_num);
-                    }
+                    let idx_num = column_to_number(dim_tag_last.to_string());
+                    row_a = vec![None; idx_num];
+                    width_len = Some(idx_num);
                 }
                 buffer.clear();
             }
