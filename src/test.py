@@ -8,7 +8,7 @@ import io
 # 開始
 start_time = time.perf_counter()
 
-file_name = 'tenpo_shohin_pattern_x.xlsx'
+file_name = 'tenpo_shohin_pattern3.xlsx'
 excel_sheet = 'sheet1'
 
 with open(file_name, 'rb') as file_obj:
@@ -22,6 +22,7 @@ with open(file_name, 'rb') as file_obj:
 
         generator = xlsxgen.DataGenerator()
         generator.process_bytes(10000, bytes_obj, bytes_solve_obj)
+        del bytes_obj, bytes_solve_obj
         while True:
             csv_data = generator.generate_data_chunk()
             if csv_data == "finish":

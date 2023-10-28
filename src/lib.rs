@@ -130,15 +130,15 @@ impl DataGenerator  {
                         eprintln!("Error: {}", e);
                         break;
                     }
-                    _ => {}
-                }
-
-                if buffer.starts_with(&dimension_tag){
-                    let dim_tag = String::from_utf8_lossy(&buffer).into_owned();
-                    let dim_tag_last = dim_tag.split(":").last().unwrap();
-                    let idx_num = column_to_number(dim_tag_last.to_string());
-                    row_a = vec![None; idx_num];
-                    width_len = Some(idx_num);
+                    _ => {
+                        if buffer.starts_with(&dimension_tag){
+                            let dim_tag = String::from_utf8_lossy(&buffer).into_owned();
+                            let dim_tag_last = dim_tag.split(":").last().unwrap();
+                            let idx_num = column_to_number(dim_tag_last.to_string());
+                            row_a = vec![None; idx_num];
+                            width_len = Some(idx_num);
+                        }
+                    }
                 }
                 buffer.clear();
             }
@@ -191,8 +191,8 @@ fn str_resolve(content: Vec<u8>) ->  Vec<String> {
 
 fn column_to_number(s: String) -> usize {
     let column_index= s.to_uppercase().chars().into_iter().
-        filter(|a| a.is_ascii_uppercase()
-        ).map(|a| a as usize - 64).
+        filter(|a| a.is_ascii_uppercase()).
+        map(|a| a as usize - 64).
         reduce(|acc, x| acc * 26 + x).unwrap_or(0);
     column_index
 }

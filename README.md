@@ -27,6 +27,7 @@ with open(file_name, 'rb') as file_obj:
 
         generator = xlsxgen.DataGenerator()
         generator.process_bytes(10000, bytes_obj, bytes_solve_obj)
+        del bytes_obj, bytes_solve_obj
         while True:
             csv_data = generator.generate_data_chunk()
             if csv_data == "finish":
