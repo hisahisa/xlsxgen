@@ -4,6 +4,7 @@ import xlsxgen
 import resource
 import time
 import io
+import zlib
 
 # 開始
 start_time = time.perf_counter()
@@ -21,8 +22,14 @@ with open(file_name, 'rb') as file_obj:
         bytes_solve_obj = zip_ref.read(solve_bytes)
 
         generator = xlsxgen.DataGenerator()
-        generator.process_bytes(10000, bytes_obj, bytes_solve_obj)
-        del bytes_obj, bytes_solve_obj
+
+        # スピード重視のケース(メモリ容量は大きく消費する)
+        # generator.process_bytes(10000, bytes_obj, bytes_solve_obj)
+
+        # メモリ容量を抑えたいケース(スピードは少し遅い)
+        bytes_obj = zlib.compress(bytes_obj)
+        bytes_solve_obj = zlib.compress(bytes_solve_obj)
+        generator.process_bytes_zlib(10000, bytes_obj, bytes_solve_obj)
         while True:
             csv_data = generator.generate_data_chunk()
             if csv_data == "finish":
