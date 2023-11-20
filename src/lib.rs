@@ -5,9 +5,10 @@ use std::thread;
 use std::sync::mpsc;
 use std::sync::mpsc::{Sender, Receiver};
 use pyo3::prelude::*;
+use pyo3::exceptions::{PyValueError, PyException};
 use inflate::inflate_bytes_zlib;
 use quick_xml::Reader;
-use quick_xml::events::Event;
+use quick_xml::events::{BytesText, Event};
 use chrono::NaiveDateTime;
 use crate::structual::StructCsv;
 
@@ -29,23 +30,26 @@ impl DataGenerator  {
         }
     }
 
-    fn process_bytes_zlib(&self, chunk: u32, content_: &[u8], str_content_: &[u8]) {
+    fn process_bytes_zlib(&self, chunk: u32, content_: &[u8], str_content_: &[u8]) -> PyResult<()> {
         let content = content_.to_vec();
         let str_content = str_content_.to_vec();
-        let decompress = inflate_bytes_zlib(&content).unwrap();
-        let decompress_str = inflate_bytes_zlib(&str_content).unwrap();
-        self._process_bytes(chunk, decompress, decompress_str);
+        let e_msg = "failed to decompress content";
+        let decompress = inflate_bytes_zlib(&content).map_err(
+            |e| PyValueError::new_err(format!("{}: {}", &e_msg, e)))?;
+        let decompress_str = inflate_bytes_zlib(&str_content).map_err(
+            |e| PyValueError::new_err(format!("{}: {}", &e_msg, e)))?;
+        self._process_bytes(chunk, decompress, decompress_str)
     }
 
-    fn process_bytes(&self, chunk: u32, content_: &[u8], str_content_: &[u8]) {
+    fn process_bytes(&self, chunk: u32, content_: &[u8], str_content_: &[u8]) -> PyResult<()> {
         let content = content_.to_vec();
         let str_content = str_content_.to_vec();
         self._process_bytes(chunk, content, str_content)
     }
 
-    fn _process_bytes(&self, chunk: u32, content: Vec<u8>, str_content: Vec<u8>) {
+    fn _process_bytes(&self, chunk: u32, content: Vec<u8>, str_content: Vec<u8>) -> PyResult<()> {
 
-        let name_resolve = str_resolve(str_content);
+        let name_resolve = str_resolve(str_content)?;
         let mut buffer = Vec::new();
         let mut c_list: Vec<String> = Vec::new();
         let mut row_a: Vec<Option<StructCsv>> = Vec::new();
@@ -58,7 +62,7 @@ impl DataGenerator  {
         let navi = create_navi();
         let tx1 = mpsc::Sender::clone(&self.pro);
         let mut count = 0;
-        let closure = move || {
+        let closure = move || -> Result<(), PyErr>{
             let mut width_len: Option<usize> = None;
             let mut xml_reader = Reader::from_reader(content.as_ref());
             loop {
@@ -79,7 +83,7 @@ impl DataGenerator  {
                                                     let a = String::from_utf8_lossy(
                                                         &*x.clone().value.into_owned()).
                                                         into_owned();
-                                                    let b = column_to_number(a);
+                                                    let b = column_to_number(a)?;
                                                     struct_csv.set_r_attr_v(b - 1);
                                                 }
                                                 _ => {}
@@ -108,7 +112,10 @@ impl DataGenerator  {
                                 count += 1;
                                 if count == chunk {
                                     let val = c_list.join("\n");
-                                    tx1.send(val).unwrap();
+                                    if let Err(e) = tx1.send(val) {
+                                        let msg = format!("failed to send message: {}", e);
+                                        return Err(PyValueError::new_err(msg));
+                                    };
                                     count = 0;
                                     c_list = Vec::new();
                                 }
@@ -121,7 +128,7 @@ impl DataGenerator  {
                         if is_v {
                             match s {
                                 Some(ref mut v) => {
-                                    let val = e.unescape().unwrap().into_owned();
+                                    let val = common_match_fn(e)?;
                                     v.set_value(val);
                                     let i = v.get_r_attr_v();
                                     row_a[i] = Some(v.clone());
@@ -134,18 +141,27 @@ impl DataGenerator  {
                     }
                     Ok(Event::Eof) => {
                         let val = c_list.join("\n");
-                        tx1.send(val).unwrap();
+                        if let Err(e) = tx1.send(val) {
+                            let msg = format!("failed to send message: {}", e);
+                            return Err(PyValueError::new_err(msg));
+                        };
                         break;
                     }
                     Err(e) => {
-                        eprintln!("Error: {}", e);
-                        break;
+                        let msg = format!("something wrong: {}", e);
+                        return Err(PyException::new_err(msg));
                     }
                     _ => {
                         if buffer.starts_with(&dimension_tag){
                             let dim_tag = String::from_utf8_lossy(&buffer).into_owned();
-                            let dim_tag_last = dim_tag.split(":").last().unwrap();
-                            let idx_num = column_to_number(dim_tag_last.to_string());
+                            let dim_tag_contains_colon = dim_tag.contains(':');
+                            let dim_tag_last = if dim_tag_contains_colon {
+                                dim_tag.split(":").last().unwrap()
+                            } else {
+                                let msg = format!("wrong dimension tag");
+                                return Err(PyValueError::new_err(msg));
+                            };
+                            let idx_num = column_to_number(dim_tag_last.to_string())?;
                             row_a = vec![None; idx_num];
                             width_len = Some(idx_num);
                         }
@@ -153,18 +169,25 @@ impl DataGenerator  {
                 }
                 buffer.clear();
             }
-            tx1.send(String::from("finish")).unwrap();
+            if let Err(e) = tx1.send(String::from("finish")) {
+                let msg = format!("failed to send message: {}", e);
+                return Err(PyValueError::new_err(msg))
+            };
+            Ok(())
         };
         thread::spawn(closure);
+        Ok(())
     }
 
     fn generate_data_chunk(&mut self) -> PyResult<String> {
-        let csv_data = self.con.recv().unwrap();
-        Ok(csv_data)
+        let e_msg = "failed to recv message";
+        let data = self.con.recv().
+            map_err(|e| PyValueError::new_err(format!("{}: {}", e_msg, e)))?;
+        Ok(data)
     }
 }
 
-fn str_resolve(content: Vec<u8>) ->  Vec<String> {
+fn str_resolve(content: Vec<u8>) ->  Result<Vec<String>, PyErr> {
     // excelの名称解決
     let mut xml_reader = Reader::from_reader(content.as_ref());
     let mut buffer = Vec::new();
@@ -182,7 +205,7 @@ fn str_resolve(content: Vec<u8>) ->  Vec<String> {
             }
             Ok(Event::Text(e)) => {
                 if &is_text & !&no_text_ {
-                    let val = e.unescape().unwrap().into_owned();
+                    let val = common_match_fn(e)?;
                     name_resolve.push(val);
                     is_text = false;
                     no_text_ = false;
@@ -190,22 +213,35 @@ fn str_resolve(content: Vec<u8>) ->  Vec<String> {
             }
             Ok(Event::Eof) => break,
             Err(e) => {
-                eprintln!("Error: {}", e);
-                break;
+                let msg = format!("something wrong: {}", e);
+                return Err(PyException::new_err(msg));
             }
             _ => {}
         }
         buffer.clear();
     }
-    name_resolve
+    Ok(name_resolve)
 }
 
-fn column_to_number(s: String) -> usize {
+fn common_match_fn(e: BytesText) -> Result<String, PyErr> {
+    let val = match e.unescape() {
+        Ok(v) => {v.into_owned()}
+        Err(err) => {
+            let msg = format!("wrong BytesText: {}", err);
+            return Err(PyValueError::new_err(msg))
+        }
+    };
+    Ok(val)
+}
+
+fn column_to_number(s: String) -> Result<usize, PyErr> {
+    let e_msg = "Error: Unable to convert column to number";
     let column_index= s.to_uppercase().chars().into_iter().
         filter(|a| a.is_ascii_uppercase()).
         map(|a| a as usize - 64).
-        reduce(|acc, x| acc * 26 + x).unwrap_or(0);
-    column_index
+        reduce(|acc, x| acc * 26 + x).
+        ok_or(PyValueError::new_err(e_msg))?;
+    Ok(column_index)
 }
 
 fn create_navi() -> NaiveDateTime {
