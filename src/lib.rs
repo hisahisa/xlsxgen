@@ -39,7 +39,7 @@ impl DataGenerator  {
         let e_msg = "failed to decompress content";
         let decompress_str = inflate_bytes_zlib(&str_content).map_err(
             |e| PyValueError::new_err(format!("{}: {}", &e_msg, e)))?;
-        self._process_bytes(chunk, content, decompress_str);
+        self._process_bytes(chunk, content, decompress_str)
     }
 
     fn process_bytes(&self, chunk: u32, content_: &[u8], str_content_: &[u8]) -> PyResult<()> {
@@ -51,9 +51,10 @@ impl DataGenerator  {
     fn _process_bytes(&self, chunk: u32, content: Vec<u8>, str_content: Vec<u8>) -> PyResult<()> {
 
         let name_resolve = str_resolve(str_content)?;
-        let mut buffer = Vec::new();
+        // let mut buffer = Vec::new();
         let mut c_list: Vec<String> = Vec::new();
         let mut row_a: Vec<Option<StructCsv>> = Vec::new();
+//        let mut row_a: Vec<Option<StructCsv>> = vec![None; 8];
         let mut is_v = false;
         let mut s: Option<StructCsv> = None;
 
@@ -68,17 +69,22 @@ impl DataGenerator  {
             let mut first_out = Vec::<u8>::new();
             let mut second_out = Vec::<u8>::new();
             let mut decoder = ZlibDecoder::new(content.as_slice());
-            let target_len = 100;
+            let target_len = 1000;
             let mut is_upper = true;
             let mut is_last = false;
             let mut width_len: Option<usize> = None;
-            let mut buffer_inner = Vec::new();
+            //let mut width_len: Option<usize> = Some(8);
+            // let mut buffer_inner = Vec::new();
             //let mut xml_reader: Option<Reader<_>> = None;
             //let mut x: Option<Vec<u8>> = None;
             loop {
 
-
                 if is_last{
+                    let val = c_list.join("\n");
+                    if let Err(e) = tx1.send(val) {
+                        let msg = format!("failed to send message: {}", e);
+                        return Err(PyValueError::new_err(msg));
+                    };
                     tx1.send(String::from("finish")).unwrap();
                     break;
                 }
@@ -86,7 +92,7 @@ impl DataGenerator  {
                 let mut buffer_outer = vec![0; target_len];
                 let bytes_read = match decoder.read(&mut buffer_outer) {
                     Ok(x) => {
-                        println!("buffer_outer = {:?}", String::from_utf8_lossy(&buffer_outer));
+                        //println!("buffer_outer = {:?}", String::from_utf8_lossy(&buffer_outer));
                         x
                     }
                     Err(e) => {
@@ -94,7 +100,7 @@ impl DataGenerator  {
                         0
                     }
                 };
-                println!("bytes_read = {:?}", &bytes_read);
+                //println!("bytes_read = {:?}", &bytes_read);
                 // let bytes_read = decoder.read(&mut buffer_outer).unwrap();
 
                 let x: Option<Vec<u8>> = if bytes_read == 0 {
@@ -117,13 +123,13 @@ impl DataGenerator  {
                     if is_upper {
                         first_out.extend(&buffer_outer[0..&index+6]);
                         second_out = Vec::<u8>::new();
-                        second_out.extend(&buffer_outer[&index+6..]);
+                        second_out.extend(&buffer_outer[&index+6..bytes_read]);
                         is_upper = false;
                         Some(first_out.clone())
                     }else{
                         second_out.extend(&buffer_outer[0..&index+6]);
                         first_out = Vec::<u8>::new();
-                        first_out.extend(&buffer_outer[&index+6..]);
+                        first_out.extend(&buffer_outer[&index+6..bytes_read]);
                         is_upper = true;
                         Some(second_out.clone())
                     }
@@ -137,10 +143,11 @@ impl DataGenerator  {
                 };
 
                 if let Some(x) = &x {
+                    //println!("pre inner = {:?}", String::from_utf8_lossy(&x));
+                    let mut buffer_inner = Vec::new();
                     let mut xml_reader = Reader::from_reader(x.as_ref());
                     // let mut buffer_inner = Vec::new();
                     loop {
-                        println!("loop inner = ");
                         match xml_reader.read_event_into(&mut buffer_inner) {
                             Ok(Event::Start(e)) => {
                                 match e.name().as_ref() {
@@ -158,7 +165,7 @@ impl DataGenerator  {
                                                             let a = String::from_utf8_lossy(
                                                                 &*x.clone().value.into_owned()).
                                                                 into_owned();
-                                                            let b = column_to_number(a);
+                                                            let b = column_to_number(a)?;
                                                             struct_csv.set_r_attr_v(b - 1);
                                                         }
                                                         _ => {}
@@ -185,10 +192,16 @@ impl DataGenerator  {
                                             }
                                         }).collect::<Vec<String>>().join(",");
                                         c_list.push(i);
+                                        // println!("loop chunk = {:?}", chunk);
+                                        // println!("loop count = {:?}", count);
+                                        // println!("loop c_list = {:?}", c_list);
                                         count += 1;
                                         if count == chunk {
                                             let val = c_list.join("\n");
-                                            tx1.send(val).unwrap();
+                                            if let Err(e) = tx1.send(val) {
+                                                let msg = format!("failed to send message: {}", e);
+                                                return Err(PyValueError::new_err(msg));
+                                            };
                                             count = 0;
                                             c_list = Vec::new();
                                         }
@@ -211,26 +224,13 @@ impl DataGenerator  {
                                     }
                                     is_v = false;
                                 }
-                                c_list.push(i);
-                                count += 1;
-                                if count == chunk {
-                                    let val = c_list.join("\n");
-                                    if let Err(e) = tx1.send(val) {
-                                        let msg = format!("failed to send message: {}", e);
-                                        return Err(PyValueError::new_err(msg));
-                                    };
-                                    count = 0;
-                                    c_list = Vec::new();
-                                }
-                                row_a = vec![None; width_len.unwrap()];
-                            },
-
+                            }
                             Ok(Event::Eof) => {
-                                let val = c_list.join("\n");
-                                if let Err(e) = tx1.send(val) {
-                                    let msg = format!("failed to send message: {}", e);
-                                    return Err(PyValueError::new_err(msg));
-                                };
+                                // let val = c_list.join("\n");
+                                // if let Err(e) = tx1.send(val) {
+                                //     let msg = format!("failed to send message: {}", e);
+                                //     return Err(PyValueError::new_err(msg));
+                                // };
                                 break;
                             }
                             Err(e) => {
@@ -238,8 +238,9 @@ impl DataGenerator  {
                                 return Err(PyException::new_err(msg));
                             }
                             _ => {
-                                if buffer.starts_with(&dimension_tag){
-                                    let dim_tag = String::from_utf8_lossy(&buffer).into_owned();
+                                if buffer_inner.starts_with(&dimension_tag){
+                                    //println!("dimension_tag yes");
+                                    let dim_tag = String::from_utf8_lossy(&buffer_inner).into_owned();
                                     let dim_tag_contains_colon = dim_tag.contains(':');
                                     let dim_tag_last = if dim_tag_contains_colon {
                                         dim_tag.split(":").last().unwrap()
@@ -251,9 +252,10 @@ impl DataGenerator  {
                                     row_a = vec![None; idx_num];
                                     width_len = Some(idx_num);
                                 }
-                                buffer_inner.clear();
                             }
                         }
+                        //println!("loop inner = {:?}", String::from_utf8_lossy(&buffer_inner));
+                        buffer_inner.clear();
                     }
                 }
             }
