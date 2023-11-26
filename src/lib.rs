@@ -51,10 +51,8 @@ impl DataGenerator  {
     fn _process_bytes(&self, chunk: u32, content: Vec<u8>, str_content: Vec<u8>) -> PyResult<()> {
 
         let name_resolve = str_resolve(str_content)?;
-        // let mut buffer = Vec::new();
         let mut c_list: Vec<String> = Vec::new();
         let mut row_a: Vec<Option<StructCsv>> = Vec::new();
-//        let mut row_a: Vec<Option<StructCsv>> = vec![None; 8];
         let mut is_v = false;
         let mut s: Option<StructCsv> = None;
 
@@ -71,23 +69,23 @@ impl DataGenerator  {
             let mut decoder = ZlibDecoder::new(content.as_slice());
             let target_len = 1000;
             let mut is_upper = true;
-            let mut is_last = false;
             let mut width_len: Option<usize> = None;
+            // let mut is_last = false;
             //let mut width_len: Option<usize> = Some(8);
             // let mut buffer_inner = Vec::new();
             //let mut xml_reader: Option<Reader<_>> = None;
             //let mut x: Option<Vec<u8>> = None;
             loop {
 
-                if is_last{
-                    let val = c_list.join("\n");
-                    if let Err(e) = tx1.send(val) {
-                        let msg = format!("failed to send message: {}", e);
-                        return Err(PyValueError::new_err(msg));
-                    };
-                    tx1.send(String::from("finish")).unwrap();
-                    break;
-                }
+                // if is_last{
+                    // let val = c_list.join("\n");
+                    // if let Err(e) = tx1.send(val) {
+                    //     let msg = format!("failed to send message: {}", e);
+                    //     return Err(PyValueError::new_err(msg));
+                    // };
+                    // tx1.send(String::from("finish")).unwrap();
+                //     break;
+                // }
 
                 let mut buffer_outer = vec![0; target_len];
                 let bytes_read = match decoder.read(&mut buffer_outer) {
@@ -96,12 +94,13 @@ impl DataGenerator  {
                         x
                     }
                     Err(e) => {
-                        println!("e = {:?}", e);
-                        0
+                        let msg = format!("something wrong: {}", e);
+                        return Err(PyException::new_err(msg));
+                        // println!("e = {:?}", e);
+                        // 0
                     }
                 };
                 //println!("bytes_read = {:?}", &bytes_read);
-                // let bytes_read = decoder.read(&mut buffer_outer).unwrap();
 
                 let x: Option<Vec<u8>> = if bytes_read == 0 {
                     let a = if is_upper {
@@ -109,7 +108,7 @@ impl DataGenerator  {
                     }else {
                         second_out.clone()
                     };
-                    is_last = true;
+                    // is_last = true;
                     let op_index = find_vec_index_rev(&a, &target_terminal_vec);
                     match op_index {
                         Some(i) => {
@@ -257,12 +256,18 @@ impl DataGenerator  {
                         //println!("loop inner = {:?}", String::from_utf8_lossy(&buffer_inner));
                         buffer_inner.clear();
                     }
+                } else {
+                    break;
                 }
             }
-            if let Err(e) = tx1.send(String::from("finish")) {
-                let msg = format!("failed to send message: {}", e);
-                return Err(PyValueError::new_err(msg))
-            };
+            let last_data = c_list.join("\n");
+            let last_msg = String::from("finish");
+            for v in vec![last_data, last_msg].into_iter(){
+                if let Err(e) = tx1.send(v) {
+                    let msg = format!("failed to send message: {}", e);
+                    return Err(PyValueError::new_err(msg));
+                };
+            }
             Ok(())
         };
         thread::spawn(closure);
