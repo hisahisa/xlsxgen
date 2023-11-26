@@ -70,37 +70,17 @@ impl DataGenerator  {
             let target_len = 1000;
             let mut is_upper = true;
             let mut width_len: Option<usize> = None;
-            // let mut is_last = false;
-            //let mut width_len: Option<usize> = Some(8);
-            // let mut buffer_inner = Vec::new();
-            //let mut xml_reader: Option<Reader<_>> = None;
-            //let mut x: Option<Vec<u8>> = None;
-            loop {
 
-                // if is_last{
-                    // let val = c_list.join("\n");
-                    // if let Err(e) = tx1.send(val) {
-                    //     let msg = format!("failed to send message: {}", e);
-                    //     return Err(PyValueError::new_err(msg));
-                    // };
-                    // tx1.send(String::from("finish")).unwrap();
-                //     break;
-                // }
+            loop {
 
                 let mut buffer_outer = vec![0; target_len];
                 let bytes_read = match decoder.read(&mut buffer_outer) {
-                    Ok(x) => {
-                        //println!("buffer_outer = {:?}", String::from_utf8_lossy(&buffer_outer));
-                        x
-                    }
+                    Ok(x) => x
                     Err(e) => {
                         let msg = format!("something wrong: {}", e);
                         return Err(PyException::new_err(msg));
-                        // println!("e = {:?}", e);
-                        // 0
                     }
                 };
-                //println!("bytes_read = {:?}", &bytes_read);
 
                 let x: Option<Vec<u8>> = if bytes_read == 0 {
                     let a = if is_upper {
@@ -108,7 +88,6 @@ impl DataGenerator  {
                     }else {
                         second_out.clone()
                     };
-                    // is_last = true;
                     let op_index = find_vec_index_rev(&a, &target_terminal_vec);
                     match op_index {
                         Some(i) => {
@@ -117,8 +96,7 @@ impl DataGenerator  {
                         },
                         None => None
                     }
-                }
-                else if let Some(index) = find_vec_index_rev(&buffer_outer, &target_terminal_vec) {
+                } else if let Some(index) = find_vec_index_rev(&buffer_outer, &target_terminal_vec) {
                     if is_upper {
                         first_out.extend(&buffer_outer[0..&index+6]);
                         second_out = Vec::<u8>::new();
@@ -142,10 +120,8 @@ impl DataGenerator  {
                 };
 
                 if let Some(x) = &x {
-                    //println!("pre inner = {:?}", String::from_utf8_lossy(&x));
                     let mut buffer_inner = Vec::new();
                     let mut xml_reader = Reader::from_reader(x.as_ref());
-                    // let mut buffer_inner = Vec::new();
                     loop {
                         match xml_reader.read_event_into(&mut buffer_inner) {
                             Ok(Event::Start(e)) => {
@@ -191,9 +167,6 @@ impl DataGenerator  {
                                             }
                                         }).collect::<Vec<String>>().join(",");
                                         c_list.push(i);
-                                        // println!("loop chunk = {:?}", chunk);
-                                        // println!("loop count = {:?}", count);
-                                        // println!("loop c_list = {:?}", c_list);
                                         count += 1;
                                         if count == chunk {
                                             let val = c_list.join("\n");
@@ -213,7 +186,7 @@ impl DataGenerator  {
                                 if is_v {
                                     match s {
                                         Some(ref mut v) => {
-                                            let val = e.unescape().unwrap().into_owned();
+                                            let val = common_match_fn(e)?;
                                             v.set_value(val);
                                             let i = v.get_r_attr_v();
                                             row_a[i] = Some(v.clone());
@@ -225,11 +198,6 @@ impl DataGenerator  {
                                 }
                             }
                             Ok(Event::Eof) => {
-                                // let val = c_list.join("\n");
-                                // if let Err(e) = tx1.send(val) {
-                                //     let msg = format!("failed to send message: {}", e);
-                                //     return Err(PyValueError::new_err(msg));
-                                // };
                                 break;
                             }
                             Err(e) => {
@@ -238,7 +206,6 @@ impl DataGenerator  {
                             }
                             _ => {
                                 if buffer_inner.starts_with(&dimension_tag){
-                                    //println!("dimension_tag yes");
                                     let dim_tag = String::from_utf8_lossy(&buffer_inner).into_owned();
                                     let dim_tag_contains_colon = dim_tag.contains(':');
                                     let dim_tag_last = if dim_tag_contains_colon {
@@ -253,7 +220,6 @@ impl DataGenerator  {
                                 }
                             }
                         }
-                        //println!("loop inner = {:?}", String::from_utf8_lossy(&buffer_inner));
                         buffer_inner.clear();
                     }
                 } else {
