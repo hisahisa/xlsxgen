@@ -75,7 +75,7 @@ impl DataGenerator  {
 
                 let mut buffer_outer = vec![0; target_len];
                 let bytes_read = match decoder.read(&mut buffer_outer) {
-                    Ok(x) => x
+                    Ok(x) => x,
                     Err(e) => {
                         let msg = format!("something wrong: {}", e);
                         return Err(PyException::new_err(msg));
