@@ -70,8 +70,13 @@ impl DataGenerator  {
             let target_len = 1000;
             let mut is_upper = true;
             let mut width_len: Option<usize> = None;
+            let mut is_last = false;
 
             loop {
+
+                if is_last {
+                    break;
+                }
 
                 let mut buffer_outer = vec![0; target_len];
                 let bytes_read = match decoder.read(&mut buffer_outer) {
@@ -88,6 +93,7 @@ impl DataGenerator  {
                     }else {
                         &second_out
                     };
+                    is_last = true;
                     if let Some(index) = find_vec_index_rev(&a, &target_terminal_vec){
                         Some(a[0..index+6].to_vec())
                     } else {
@@ -213,8 +219,6 @@ impl DataGenerator  {
                         }
                         buffer_inner.clear();
                     }
-                } else {
-                    break;
                 }
             }
             let last_data = c_list.join("\n");
