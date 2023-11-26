@@ -9,7 +9,7 @@ import zlib
 # 開始
 start_time = time.perf_counter()
 
-file_name = 'tenpo_shohin_pattern3.xlsx'
+file_name = 'tenpo_shohin_pattern_x.xlsx'
 excel_sheet = 'sheet1'
 
 with open(file_name, 'rb') as file_obj:
@@ -44,6 +44,7 @@ with open(file_name, 'rb') as file_obj:
         except ValueError as e:
             print(f"value error: {e}")
 
+print(f"Max RSS: {resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024 / 1024} MB")
 memory_info = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
 print(f"Max RSS: {memory_info / 1024 / 1024} MB")
 
