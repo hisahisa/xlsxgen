@@ -84,38 +84,29 @@ impl DataGenerator  {
 
                 let x: Option<Vec<u8>> = if bytes_read == 0 {
                     let a = if is_upper {
-                        first_out.clone()
+                        &first_out
                     }else {
-                        second_out.clone()
+                        &second_out
                     };
-                    let op_index = find_vec_index_rev(&a, &target_terminal_vec);
-                    match op_index {
-                        Some(i) => {
-                            let b = &a[0..i+6];
-                            Some(b.to_vec())
-                        },
-                        None => None
+                    if let Some(index) = find_vec_index_rev(&a, &target_terminal_vec){
+                        Some(a[0..index+6].to_vec())
+                    } else {
+                        None
                     }
                 } else if let Some(index) = find_vec_index_rev(&buffer_outer, &target_terminal_vec) {
-                    if is_upper {
-                        first_out.extend(&buffer_outer[0..&index+6]);
-                        second_out = Vec::<u8>::new();
-                        second_out.extend(&buffer_outer[&index+6..bytes_read]);
-                        is_upper = false;
-                        Some(first_out.clone())
-                    }else{
-                        second_out.extend(&buffer_outer[0..&index+6]);
-                        first_out = Vec::<u8>::new();
-                        first_out.extend(&buffer_outer[&index+6..bytes_read]);
-                        is_upper = true;
-                        Some(second_out.clone())
-                    }
+                    let (current_out, other_out) = if is_upper {
+                        (&mut first_out, &mut second_out)
+                    } else {
+                        (&mut second_out, &mut first_out)
+                    };
+                    current_out.extend(&buffer_outer[0..&index + 6]);
+                    other_out.clear();
+                    other_out.extend(&buffer_outer[&index + 6..bytes_read]);
+                    is_upper = !is_upper;
+                    Some(current_out.clone())
                 } else {
-                    if is_upper {
-                        first_out.extend(&buffer_outer[0..bytes_read]);
-                    }else{
-                        second_out.extend(&buffer_outer[0..bytes_read]);
-                    }
+                    let current_out = if is_upper { &mut first_out } else { &mut second_out };
+                    current_out.extend(&buffer_outer[0..bytes_read]);
                     continue;
                 };
 
