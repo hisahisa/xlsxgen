@@ -103,11 +103,15 @@ impl DataGenerator  {
                             b"row" => {
                                 let i = row_a.into_iter().map(|a| {
                                     match a {
-                                        Some(s) => s.clone().
-                                            get_value(&navi, &name_resolve),
-                                        None => "".to_string()
+                                        Some(s) => {
+                                            let msg = "structual wrong";
+                                            s.clone().
+                                                get_value(&navi, &name_resolve).
+                                                map_err(|e| PyValueError::new_err(format!("{}: {}", msg, e)))
+                                        },
+                                        None => Ok("".to_string())
                                     }
-                                }).collect::<Vec<String>>().join(",");
+                                }).collect::<Result<Vec<String>, PyErr>>()?.join(",");
                                 c_list.push(i);
                                 count += 1;
                                 if count == chunk {

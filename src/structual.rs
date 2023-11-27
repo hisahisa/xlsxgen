@@ -1,4 +1,6 @@
 use chrono::{Duration, NaiveDateTime};
+use pyo3::exceptions::PyValueError;
+use pyo3::PyErr;
 
 #[derive( Debug, Clone)]
 pub(crate) struct StructCsv {
@@ -33,23 +35,37 @@ impl StructCsv {
     }
 
     pub(crate) fn get_value(&self, excel_base_date: &NaiveDateTime,
-                            name_resolve: &Vec<String>) -> String{
+                            name_resolve: &Vec<String>) -> Result<String, PyErr> {
         if self.attr == 115u8 {
             let a = &self.value[..];
-            self.excel_date_to_datetime(a, excel_base_date)
+            Ok(self.excel_date_to_datetime(a, excel_base_date)?)
         } else if self.attr == 116u8 {
-            let i: usize = self.value.parse::<usize>().unwrap();
-            format!("\"{}\"", name_resolve[i].clone())
+            let i:usize = match self.value.parse::<usize>() {
+                Ok(i) => i,
+                Err(e) => {
+                    let msg = format!("unable to parse address value: {}", e);
+                    return Err(PyValueError::new_err(msg))
+                }
+            };
+            Ok(format!("\"{}\"", name_resolve[i].as_str().to_string()))
         } else {
-            self.value.clone()
+            Ok(self.value.as_str().to_string())
         }
     }
 
     fn excel_date_to_datetime(&self, val: &str, excel_base_date: &NaiveDateTime)
-        -> String {
+        -> Result<String, PyErr> {
         // エクセルの数値を日数と秒に分割
-        let days: i64 = val.split('.').next().unwrap().parse().unwrap();
-        let seconds: i64 = ((val.parse::<f64>().unwrap() - days as f64) * 86400.5) as i64;
+        let day_msg = "unable to parse day value";
+        let days_str = val.split('.').next().
+            ok_or(PyValueError::new_err(day_msg))?;
+        let days = days_str.parse().
+            map_err(|e| PyValueError::new_err(format!("{}: {}", &day_msg, e)))?;
+
+        let second_msg = "unable to parse seconds value";
+        let parse_value = val.parse::<f64>().
+            map_err(|e| PyValueError::new_err(format!("{}: {}", &second_msg, e)))?;
+        let seconds: i64 = ((parse_value - days as f64) * 86400.5) as i64;
 
         // エクセルの基準日に指定された秒数を加算
         let result = *excel_base_date +
@@ -62,6 +78,6 @@ impl StructCsv {
         } else {
             "%Y-%m-%d"
         }).to_string();
-        time_format
+        Ok(time_format)
     }
 }
