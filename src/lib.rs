@@ -75,8 +75,18 @@ impl DataGenerator  {
                                     match i {
                                         Ok(x) => {
                                             match &x.key.into_inner() {
-                                                [115u8] | [116u8] => { // b"s", b"t"
-                                                    struct_csv.set_attr(
+                                                [115u8] => { // b"s"
+                                                    struct_csv.set_s_attr(
+                                                        x.key.into_inner()[0].clone());
+                                                    let msg = "structual parse wrong";
+                                                    let a = String::from_utf8(x.value.to_vec()).
+                                                        map_err(|e| PyValueError::new_err(format!("{}: {}", msg, e)))?.
+                                                        parse().
+                                                        map_err(|e| PyValueError::new_err(format!("{}: {}", msg, e)))?;
+                                                    struct_csv.set_s_attr_v(a);
+                                                }
+                                                [116u8] => { // b"t"
+                                                    struct_csv.set_t_attr(
                                                         x.key.into_inner()[0].clone());
                                                 }
                                                 [114u8] => { // b"r"
