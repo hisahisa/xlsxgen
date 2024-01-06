@@ -82,8 +82,8 @@ impl DataGenerator  {
                                 for i in e.attributes() {
                                     match i {
                                         Ok(x) => {
-                                            match &x.key.into_inner() {
-                                                [115u8] => { // b"s"
+                                            match x.key.into_inner() {
+                                                b"s" => {
                                                     struct_csv.set_s_attr(
                                                         x.key.into_inner()[0].clone());
                                                     let msg = "structual parse wrong";
@@ -93,11 +93,11 @@ impl DataGenerator  {
                                                         map_err(|e| PyValueError::new_err(format!("{}: {}", msg, e)))?;
                                                     struct_csv.set_s_attr_v(a);
                                                 }
-                                                [116u8] => { // b"t"
+                                                b"t" => {
                                                     struct_csv.set_t_attr(
                                                         x.key.into_inner()[0].clone());
                                                 }
-                                                [114u8] => { // b"r"
+                                                b"r" => {
                                                     let a = String::from_utf8_lossy(
                                                         &*x.clone().value.into_owned()).
                                                         into_owned();
@@ -215,8 +215,12 @@ fn date_ident(style_resolve: (Vec<String>, HashMap<String, String>))
     let style_vec = style_resolve.0;
     let style_map = style_resolve.1;
 
-    let resolve_map: IndexMap<String, bool> = style_vec.into_iter().map(|num_fmt_str|{
-        let num_fmt_id = &num_fmt_str.parse::<u32>().unwrap();
+    let resolve_map: Result<IndexMap<String, bool>, PyErr> =
+        style_vec.into_iter().map(|num_fmt_str|{
+
+        let msg = "style parse wrong";
+        let num_fmt_id = num_fmt_str.parse::<u32>().
+            map_err(|e| PyValueError::new_err(format!("{}: {}", msg, e)))?;
         let bool_value = match num_fmt_id {
             // numFmtの参考 ↓
             // https://learn.microsoft.com/ja-jp/dotnet/api/documentformat.openxml.spreadsheet.numberingformat?view=openxml-2.8.1
@@ -232,9 +236,9 @@ fn date_ident(style_resolve: (Vec<String>, HashMap<String, String>))
                 bool_
             },
         };
-        (num_fmt_str, bool_value)
+        Ok((num_fmt_str, bool_value))
     }).collect();
-    Ok(resolve_map)
+    resolve_map
 }
 
 fn stle_resolve(content: Vec<u8>) ->  Result<(Vec<String>, HashMap<String, String>), PyErr> {
@@ -266,8 +270,9 @@ fn stle_resolve(content: Vec<u8>) ->  Result<(Vec<String>, HashMap<String, Strin
                                         _ => {}
                                     }
                                 }
-                                Err(_) => {
-                                    // nead error handling
+                                Err(e) => {
+                                    let msg = format!("something style wrong: {}", e);
+                                    return Err(PyException::new_err(msg));
                                 }
                             }
                         }
@@ -298,8 +303,6 @@ fn stle_resolve(content: Vec<u8>) ->  Result<(Vec<String>, HashMap<String, Strin
                 }
             }
         }
-        // println!("inner_buf = {:?}", String::from_utf8(buffer.clone()));
-        // println!("buffer = {:?}", buffer.clone());
         buffer.clear();
     }
     Ok((style_vec, style_map))
