@@ -1,6 +1,8 @@
 // Rust code (src/lib.rs)
 mod structual;
 
+use std::collections::HashMap;
+use indexmap::IndexMap;
 use std::thread;
 use std::sync::mpsc;
 use std::sync::mpsc::{Sender, Receiver};
@@ -30,25 +32,31 @@ impl DataGenerator  {
         }
     }
 
-    fn process_bytes_zlib(&self, chunk: u32, content_: &[u8], str_content_: &[u8]) -> PyResult<()> {
+    // fn process_bytes_zlib(&self, chunk: u32, content_: &[u8], str_content_: &[u8],
+    //                       stle_content_: &[u8]) -> PyResult<()> {
+    //     let content = content_.to_vec();
+    //     let str_content = str_content_.to_vec();
+    //     let e_msg = "failed to decompress content";
+    //     let decompress = inflate_bytes_zlib(&content).map_err(
+    //         |e| PyValueError::new_err(format!("{}: {}", &e_msg, e)))?;
+    //     let decompress_str = inflate_bytes_zlib(&str_content).map_err(
+    //         |e| PyValueError::new_err(format!("{}: {}", &e_msg, e)))?;
+    //     self._process_bytes(chunk, decompress, decompress_str)
+    // }
+
+    fn process_bytes(&self, chunk: u32, content_: &[u8], str_content_: &[u8],
+                     stle_content_: &[u8]) -> PyResult<()> {
         let content = content_.to_vec();
         let str_content = str_content_.to_vec();
-        let e_msg = "failed to decompress content";
-        let decompress = inflate_bytes_zlib(&content).map_err(
-            |e| PyValueError::new_err(format!("{}: {}", &e_msg, e)))?;
-        let decompress_str = inflate_bytes_zlib(&str_content).map_err(
-            |e| PyValueError::new_err(format!("{}: {}", &e_msg, e)))?;
-        self._process_bytes(chunk, decompress, decompress_str)
+        let stle_content = stle_content_.to_vec();
+        self._process_bytes(chunk, content, str_content, stle_content)
     }
 
-    fn process_bytes(&self, chunk: u32, content_: &[u8], str_content_: &[u8]) -> PyResult<()> {
-        let content = content_.to_vec();
-        let str_content = str_content_.to_vec();
-        self._process_bytes(chunk, content, str_content)
-    }
+    fn _process_bytes(&self, chunk: u32, content: Vec<u8>, str_content: Vec<u8>,
+                      stle_content: Vec<u8>) -> PyResult<()> {
 
-    fn _process_bytes(&self, chunk: u32, content: Vec<u8>, str_content: Vec<u8>) -> PyResult<()> {
-
+        let style_vec = stle_resolve(stle_content)?;
+        let style_resolve = date_ident(style_vec)?;
         let name_resolve = str_resolve(str_content)?;
         let mut buffer = Vec::new();
         let mut c_list: Vec<String> = Vec::new();
@@ -81,7 +89,7 @@ impl DataGenerator  {
                                                     let msg = "structual parse wrong";
                                                     let a = String::from_utf8(x.value.to_vec()).
                                                         map_err(|e| PyValueError::new_err(format!("{}: {}", msg, e)))?.
-                                                        parse().
+                                                        parse::<usize>().
                                                         map_err(|e| PyValueError::new_err(format!("{}: {}", msg, e)))?;
                                                     struct_csv.set_s_attr_v(a);
                                                 }
@@ -116,7 +124,7 @@ impl DataGenerator  {
                                         Some(s) => {
                                             let msg = "structual wrong";
                                             s.clone().
-                                                get_value(&navi, &name_resolve).
+                                                get_value(&navi, &name_resolve, &style_resolve).
                                                 map_err(|e| PyValueError::new_err(format!("{}: {}", msg, e)))
                                         },
                                         None => Ok("".to_string())
@@ -199,6 +207,102 @@ impl DataGenerator  {
             map_err(|e| PyValueError::new_err(format!("{}: {}", e_msg, e)))?;
         Ok(data)
     }
+}
+
+fn date_ident(style_resolve: (Vec<String>, HashMap<String, String>))
+    -> Result<IndexMap<String, bool>, PyErr> {
+    // style.xml cellXfsタグから情報を取得し日付判定mapを作成する
+    let style_vec = style_resolve.0;
+    let style_map = style_resolve.1;
+
+    let resolve_map: IndexMap<String, bool> = style_vec.into_iter().map(|num_fmt_str|{
+        let num_fmt_id = &num_fmt_str.parse::<u32>().unwrap();
+        let bool_value = match num_fmt_id {
+            // numFmtの参考 ↓
+            // https://learn.microsoft.com/ja-jp/dotnet/api/documentformat.openxml.spreadsheet.numberingformat?view=openxml-2.8.1
+            0..=4 | 9..=13 | 37..=40 | 45..=49 => false,
+            14..=22 => true,
+            _ => {
+                // numFmtの例外の場合はstyleに y が２個以上, m が１個以上の場合は trueとしている
+                let bool_ = match style_map.get(&num_fmt_str) {
+                    Some(s) if s.matches('y').count() >= 2 &&
+                        s.matches('m').count() >= 1 => true,
+                    _ => false
+                };
+                bool_
+            },
+        };
+        (num_fmt_str, bool_value)
+    }).collect();
+    Ok(resolve_map)
+}
+
+fn stle_resolve(content: Vec<u8>) ->  Result<(Vec<String>, HashMap<String, String>), PyErr> {
+    // excelのstyle解決
+    let mut xml_reader = Reader::from_reader(content.as_ref());
+    let mut buffer = Vec::new();
+    let mut inner_buf = Vec::new();
+    let mut style_vec: Vec<String> = Vec::new();
+    let mut style_map: HashMap<String, String> = HashMap::new();
+
+    // tag numFmt の属性取得
+    let numfmt_tag = vec![110, 117, 109, 70, 109, 116, 32];
+    loop {
+        match xml_reader.read_event_into(&mut buffer) {
+            Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"cellXfs" => loop {
+                inner_buf.clear();
+                match xml_reader.read_event_into(&mut inner_buf) {
+                    Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"xf" => {
+                        for i in e.attributes() {
+                            match i {
+                                Ok(x) => {
+                                    match x.key.into_inner() {
+                                        b"numFmtId" => {
+                                            let msg = format!("failed style ");
+                                            let a = String::from_utf8(x.value.to_vec()).
+                                                map_err(|e| PyValueError::new_err(format!("{}: {}", msg, e)))?;
+                                            style_vec.push(a);
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                                Err(_) => {
+                                    // nead error handling
+                                }
+                            }
+                        }
+                    }
+                    Ok(Event::End(ref e)) if e.local_name().as_ref() == b"cellXfs" => break,
+                    _ => {},
+                }
+            }
+            Ok(Event::Eof) => break,
+            Err(e) => {
+                let msg = format!("something style wrong: {}", e);
+                return Err(PyException::new_err(msg));
+            }
+            _ => {
+                if buffer.starts_with(&numfmt_tag){
+                    let numfmt_tag_str = String::from_utf8_lossy(&buffer).into_owned();
+                    let msg = format!("failed numfmt style ");
+                    let target_attr_numfmt = "numFmtId=\"";
+                    let target_attr_fmtcode = "formatCode=\"";
+                    let target_end = "\"";
+                    let num_fmt_id_start = numfmt_tag_str.find(target_attr_numfmt).ok_or(PyValueError::new_err(format!("{}", msg)))? + target_attr_numfmt.len();
+                    let num_fmt_id_end = numfmt_tag_str[num_fmt_id_start..].find(target_end).ok_or(PyValueError::new_err(format!("{}", msg)))? + num_fmt_id_start;
+                    let num_fmt_id = numfmt_tag_str[num_fmt_id_start..num_fmt_id_end].to_string();
+                    let format_code_start = numfmt_tag_str.find(target_attr_fmtcode).ok_or(PyValueError::new_err(format!("{}", msg)))? + target_attr_fmtcode.len();
+                    let format_code_end = numfmt_tag_str[format_code_start..].find(target_end).ok_or(PyValueError::new_err(format!("{}", msg)))? + format_code_start;
+                    let format_code = numfmt_tag_str[format_code_start..format_code_end].to_string();
+                    style_map.insert(num_fmt_id, format_code);
+                }
+            }
+        }
+        // println!("inner_buf = {:?}", String::from_utf8(buffer.clone()));
+        // println!("buffer = {:?}", buffer.clone());
+        buffer.clear();
+    }
+    Ok((style_vec, style_map))
 }
 
 fn str_resolve(content: Vec<u8>) ->  Result<Vec<String>, PyErr> {

@@ -1,4 +1,5 @@
 use chrono::{Duration, NaiveDateTime};
+use indexmap::IndexMap;
 use pyo3::exceptions::PyValueError;
 use pyo3::PyErr;
 
@@ -6,7 +7,7 @@ use pyo3::PyErr;
 pub(crate) struct StructCsv {
     value: String,
     s_attr: u8,
-    s_attr_v: i32,
+    s_attr_v: usize,
     t_attr: u8,
     r_attr_v: usize
 }
@@ -26,7 +27,7 @@ impl StructCsv {
         self.s_attr = val;
     }
 
-    pub(crate) fn set_s_attr_v(&mut self, val: i32) {
+    pub(crate) fn set_s_attr_v(&mut self, val: usize) {
         self.s_attr_v = val;
     }
 
@@ -47,8 +48,8 @@ impl StructCsv {
     }
 
     pub(crate) fn get_value(&self, excel_base_date: &NaiveDateTime,
-                            name_resolve: &Vec<String>) -> Result<String, PyErr> {
-
+                            name_resolve: &Vec<String>, style_resolve: &IndexMap<String, bool>)
+        -> Result<String, PyErr> {
         if self.t_attr == 116u8 {
             let i: usize = match self.value.parse::<usize>() {
                 Ok(i) => i,
@@ -59,12 +60,19 @@ impl StructCsv {
             };
             Ok(format!("\"{}\"", name_resolve[i].as_str().to_string()))
         } else if self.s_attr == 115u8 {
-            if self.s_attr_v < 3 {
-                let a = &self.value[..];
-                Ok(self.excel_date_to_datetime(a, excel_base_date)?)
-            } else {
-                Ok(self.value.as_str().to_string())
-            }
+            let style_idx = self.s_attr_v.clone();
+            let result = match style_resolve.values().nth(style_idx) {
+                Some(bool_val) => {
+                    if *bool_val {
+                        let a = &self.value[..];
+                        self.excel_date_to_datetime(a, excel_base_date)?
+                    }else{
+                        self.value.as_str().to_string()
+                    }
+                },
+                _ => self.value.as_str().to_string()
+            };
+            Ok(result)
         } else {
             Ok(self.value.as_str().to_string())
         }
