@@ -26,8 +26,10 @@ with open(file_name, 'rb') as file_obj:
         s_list = [f'xl/worksheets/{excel_sheet}.xml']
         sheet_list = [i for i in zip_ref.namelist() if i in s_list]
         solve_bytes = 'xl/sharedStrings.xml'
+        style_bytes = 'xl/styles.xml'
         bytes_obj = zip_ref.read([i for i in zip_ref.namelist() if i in sheet_list][0])
         bytes_solve_obj = zip_ref.read(solve_bytes)
+        bytes_style_obj = zip_ref.read(style_bytes)
 
         try:
             generator = xlsxgen.DataGenerator()

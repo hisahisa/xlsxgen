@@ -32,17 +32,20 @@ impl DataGenerator  {
         }
     }
 
-    // fn process_bytes_zlib(&self, chunk: u32, content_: &[u8], str_content_: &[u8],
-    //                       stle_content_: &[u8]) -> PyResult<()> {
-    //     let content = content_.to_vec();
-    //     let str_content = str_content_.to_vec();
-    //     let e_msg = "failed to decompress content";
-    //     let decompress = inflate_bytes_zlib(&content).map_err(
-    //         |e| PyValueError::new_err(format!("{}: {}", &e_msg, e)))?;
-    //     let decompress_str = inflate_bytes_zlib(&str_content).map_err(
-    //         |e| PyValueError::new_err(format!("{}: {}", &e_msg, e)))?;
-    //     self._process_bytes(chunk, decompress, decompress_str)
-    // }
+    fn process_bytes_zlib(&self, chunk: u32, content_: &[u8], str_content_: &[u8],
+                          stle_content_: &[u8]) -> PyResult<()> {
+        let content = content_.to_vec();
+        let str_content = str_content_.to_vec();
+        let e_msg = "failed to decompress content";
+        let decompress = inflate_bytes_zlib(&content).map_err(
+            |e| PyValueError::new_err(format!("{}: {}", &e_msg, e)))?;
+        let decompress_str = inflate_bytes_zlib(&str_content).map_err(
+            |e| PyValueError::new_err(format!("{}: {}", &e_msg, e)))?;
+        let decompress_stle = inflate_bytes_zlib(&stle_content_).map_err(
+            |e| PyValueError::new_err(format!("{}: {}", &e_msg, e)))?;
+        self._process_bytes(chunk, decompress, decompress_str,
+                            decompress_stle)
+    }
 
     fn process_bytes(&self, chunk: u32, content_: &[u8], str_content_: &[u8],
                      stle_content_: &[u8]) -> PyResult<()> {
@@ -85,7 +88,7 @@ impl DataGenerator  {
                                             match x.key.into_inner() {
                                                 b"s" => {
                                                     struct_csv.set_s_attr(
-                                                        x.key.into_inner()[0].clone());
+                                                        x.key.into_inner().to_vec());
                                                     let msg = "structual parse wrong";
                                                     let a = String::from_utf8(x.value.to_vec()).
                                                         map_err(|e| PyValueError::new_err(format!("{}: {}", msg, e)))?.
@@ -95,7 +98,7 @@ impl DataGenerator  {
                                                 }
                                                 b"t" => {
                                                     struct_csv.set_t_attr(
-                                                        x.key.into_inner()[0].clone());
+                                                        x.key.into_inner().to_vec());
                                                 }
                                                 b"r" => {
                                                     let a = String::from_utf8_lossy(

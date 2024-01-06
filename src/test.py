@@ -18,20 +18,23 @@ with open(file_name, 'rb') as file_obj:
         s_list = [f'xl/worksheets/{excel_sheet}.xml']
         sheet_list = [i for i in zip_ref.namelist() if i in s_list]
         solve_bytes = 'xl/sharedStrings.xml'
+        style_bytes = 'xl/styles.xml'
         bytes_obj = zip_ref.read([i for i in zip_ref.namelist() if i in sheet_list][0])
         bytes_solve_obj = zip_ref.read(solve_bytes)
+        bytes_style_obj = zip_ref.read(style_bytes)
 
         try:
             generator = xlsxgen.DataGenerator()
 
             # スピード重視のケース(メモリ容量は大きく消費する)
-            # generator.process_bytes(10000, bytes_obj, bytes_solve_obj)
+            generator.process_bytes(10000, bytes_obj, bytes_solve_obj, bytes_style_obj)
 
             # メモリ容量を抑えたいケース(スピードは少し遅い)
-            bytes_obj = zlib.compress(bytes_obj)
-            bytes_solve_obj = zlib.compress(bytes_solve_obj)
-            generator.process_bytes_zlib(10000, bytes_obj, bytes_solve_obj)
-            del bytes_obj, bytes_solve_obj
+            # bytes_obj = zlib.compress(bytes_obj)
+            # bytes_solve_obj = zlib.compress(bytes_solve_obj)
+            # bytes_style_obj = zlib.compress(bytes_style_obj)
+            # generator.process_bytes_zlib(10000, bytes_obj, bytes_solve_obj, bytes_style_obj)
+            del bytes_obj, bytes_solve_obj, bytes_style_obj
             while True:
                 csv_data = generator.generate_data_chunk()
                 if csv_data == "finish":
