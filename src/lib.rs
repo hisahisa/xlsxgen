@@ -68,7 +68,7 @@ impl DataGenerator  {
         let mut s: Option<StructCsv> = None;
 
         // tag "dimension ref=\"xx:yy\"/" の属性取得
-        let dimension_tag = vec![100, 105, 109, 101, 110, 115, 105, 111, 110];
+        let dimension_tag = b"dimension";
 
         let navi = create_navi();
         let tx1 = mpsc::Sender::clone(&self.pro);
@@ -177,7 +177,7 @@ impl DataGenerator  {
                         return Err(PyException::new_err(msg));
                     }
                     _ => {
-                        if buffer.starts_with(&dimension_tag){
+                        if buffer.starts_with(dimension_tag){
                             let dim_tag = String::from_utf8_lossy(&buffer).into_owned();
                             let dim_tag_contains_colon = dim_tag.contains(':');
                             let dim_tag_last = if dim_tag_contains_colon {
@@ -253,7 +253,7 @@ fn stle_resolve(content: Vec<u8>) ->  Result<(Vec<String>, HashMap<String, Strin
     let mut style_map: HashMap<String, String> = HashMap::new();
 
     // tag numFmt の属性取得
-    let numfmt_tag = vec![110, 117, 109, 70, 109, 116, 32];
+    let numfmt_tag = b"numFmt ";
     loop {
         match xml_reader.read_event_into(&mut buffer) {
             Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"cellXfs" => loop {
@@ -290,7 +290,7 @@ fn stle_resolve(content: Vec<u8>) ->  Result<(Vec<String>, HashMap<String, Strin
                 return Err(PyException::new_err(msg));
             }
             _ => {
-                if buffer.starts_with(&numfmt_tag){
+                if buffer.starts_with(numfmt_tag){
                     let numfmt_tag_str = String::from_utf8_lossy(&buffer).into_owned();
                     let msg = format!("failed numfmt style ");
                     let target_attr_numfmt = "numFmtId=\"";
