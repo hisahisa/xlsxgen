@@ -165,11 +165,6 @@ impl DataGenerator  {
                         }
                     }
                     Ok(Event::Eof) => {
-                        let val = c_list.join("\n");
-                        if let Err(e) = tx1.send(val) {
-                            let msg = format!("failed to send message: {}", e);
-                            return Err(PyValueError::new_err(msg));
-                        };
                         break;
                     }
                     Err(e) => {
@@ -194,10 +189,14 @@ impl DataGenerator  {
                 }
                 buffer.clear();
             }
-            if let Err(e) = tx1.send(String::from("finish")) {
-                let msg = format!("failed to send message: {}", e);
-                return Err(PyValueError::new_err(msg))
-            };
+            let last_data = c_list.join("\n");
+            let last_msg = String::from("finish");
+            for v in vec![last_data, last_msg].into_iter(){
+                if let Err(e) = tx1.send(v) {
+                    let msg = format!("failed to send message: {}", e);
+                    return Err(PyValueError::new_err(msg));
+                };
+            }
             Ok(())
         };
         thread::spawn(closure);
