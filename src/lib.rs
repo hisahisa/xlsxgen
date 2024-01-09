@@ -60,7 +60,6 @@ impl DataGenerator  {
 
         let style_vec = stle_resolve(stle_content)?;
         let style_resolve = date_ident(style_vec)?;
-//        println!("style_resolve = {:?}", style_resolve);
         let name_resolve = str_resolve(str_content)?;
         let mut buffer = Vec::new();
         let mut c_list: Vec<String> = Vec::new();
