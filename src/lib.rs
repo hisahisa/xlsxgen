@@ -60,6 +60,7 @@ impl DataGenerator  {
 
         let style_vec = stle_resolve(stle_content)?;
         let style_resolve = date_ident(style_vec)?;
+//        println!("style_resolve = {:?}", style_resolve);
         let name_resolve = str_resolve(str_content)?;
         let mut buffer = Vec::new();
         let mut c_list: Vec<String> = Vec::new();
@@ -251,36 +252,26 @@ fn stle_resolve(content: Vec<u8>) ->  Result<(Vec<String>, HashMap<String, Strin
     let mut style_vec: Vec<String> = Vec::new();
     let mut style_map: HashMap<String, String> = HashMap::new();
 
-    // tag numFmt の属性取得
+    // target tag の属性取得
     let numfmt_tag = b"numFmt ";
+    let xf_tag = b"xf ";
     loop {
         match xml_reader.read_event_into(&mut buffer) {
             Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"cellXfs" => loop {
                 inner_buf.clear();
                 match xml_reader.read_event_into(&mut inner_buf) {
-                    Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"xf" => {
-                        for i in e.attributes() {
-                            match i {
-                                Ok(x) => {
-                                    match x.key.into_inner() {
-                                        b"numFmtId" => {
-                                            let msg = format!("failed style ");
-                                            let a = String::from_utf8(x.value.to_vec()).
-                                                map_err(|e| PyValueError::new_err(format!("{}: {}", msg, e)))?;
-                                            style_vec.push(a);
-                                        }
-                                        _ => {}
-                                    }
-                                }
-                                Err(e) => {
-                                    let msg = format!("something style wrong: {}", e);
-                                    return Err(PyException::new_err(msg));
-                                }
-                            }
-                        }
-                    }
                     Ok(Event::End(ref e)) if e.local_name().as_ref() == b"cellXfs" => break,
-                    _ => {},
+                    _ => {
+                        if inner_buf.starts_with(xf_tag){
+                            let xf_tag_str = String::from_utf8_lossy(&inner_buf).into_owned();
+                            let msg = "failed xf style ";
+                            let target_attr_xf = "numFmtId=\"";
+                            let target_end = "\"";
+                            let num_fmt_id = extract_target_str(
+                                &xf_tag_str, target_attr_xf, target_end, msg)?;
+                            style_vec.push(num_fmt_id);
+                        }
+                    },
                 }
             }
             Ok(Event::Eof) => break,
@@ -291,16 +282,14 @@ fn stle_resolve(content: Vec<u8>) ->  Result<(Vec<String>, HashMap<String, Strin
             _ => {
                 if buffer.starts_with(numfmt_tag){
                     let numfmt_tag_str = String::from_utf8_lossy(&buffer).into_owned();
-                    let msg = format!("failed numfmt style ");
+                    let msg = "failed numfmt style ";
                     let target_attr_numfmt = "numFmtId=\"";
                     let target_attr_fmtcode = "formatCode=\"";
                     let target_end = "\"";
-                    let num_fmt_id_start = numfmt_tag_str.find(target_attr_numfmt).ok_or(PyValueError::new_err(format!("{}", msg)))? + target_attr_numfmt.len();
-                    let num_fmt_id_end = numfmt_tag_str[num_fmt_id_start..].find(target_end).ok_or(PyValueError::new_err(format!("{}", msg)))? + num_fmt_id_start;
-                    let num_fmt_id = numfmt_tag_str[num_fmt_id_start..num_fmt_id_end].to_string();
-                    let format_code_start = numfmt_tag_str.find(target_attr_fmtcode).ok_or(PyValueError::new_err(format!("{}", msg)))? + target_attr_fmtcode.len();
-                    let format_code_end = numfmt_tag_str[format_code_start..].find(target_end).ok_or(PyValueError::new_err(format!("{}", msg)))? + format_code_start;
-                    let format_code = numfmt_tag_str[format_code_start..format_code_end].to_string();
+                    let num_fmt_id = extract_target_str(
+                        &numfmt_tag_str, target_attr_numfmt, target_end, msg)?;
+                    let format_code = extract_target_str(
+                        &numfmt_tag_str, target_attr_fmtcode, target_end, msg)?;
                     style_map.insert(num_fmt_id, format_code);
                 }
             }
@@ -308,6 +297,15 @@ fn stle_resolve(content: Vec<u8>) ->  Result<(Vec<String>, HashMap<String, Strin
         buffer.clear();
     }
     Ok((style_vec, style_map))
+}
+
+fn extract_target_str(target_tag: &str, target_attr: &str, target_end: &str, error_msg: &str)
+                      -> Result<String, PyErr> {
+    let num_fmt_id_start = target_tag.find(target_attr).
+        ok_or(PyValueError::new_err(format!("{}", error_msg)))? + target_attr.len();
+    let num_fmt_id_end = target_tag[num_fmt_id_start..].find(target_end).
+        ok_or(PyValueError::new_err(format!("{}", error_msg)))? + num_fmt_id_start;
+    Ok(target_tag[num_fmt_id_start..num_fmt_id_end].to_string())
 }
 
 fn str_resolve(content: Vec<u8>) ->  Result<Vec<String>, PyErr> {
