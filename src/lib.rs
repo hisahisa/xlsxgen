@@ -2,7 +2,6 @@
 mod structual;
 
 use std::collections::HashMap;
-use indexmap::IndexMap;
 use std::thread;
 use std::sync::mpsc;
 use std::sync::mpsc::{Sender, Receiver};
@@ -34,14 +33,12 @@ impl DataGenerator  {
 
     fn process_bytes_zlib(&self, chunk: u32, content_: &[u8], str_content_: &[u8],
                           stle_content_: &[u8]) -> PyResult<()> {
-        let content = content_.to_vec();
-        let str_content = str_content_.to_vec();
         let e_msg = "failed to decompress content";
-        let decompress = inflate_bytes_zlib(&content).map_err(
+        let decompress = inflate_bytes_zlib(content_).map_err(
             |e| PyValueError::new_err(format!("{}: {}", &e_msg, e)))?;
-        let decompress_str = inflate_bytes_zlib(&str_content).map_err(
+        let decompress_str = inflate_bytes_zlib(str_content_).map_err(
             |e| PyValueError::new_err(format!("{}: {}", &e_msg, e)))?;
-        let decompress_stle = inflate_bytes_zlib(&stle_content_).map_err(
+        let decompress_stle = inflate_bytes_zlib(stle_content_).map_err(
             |e| PyValueError::new_err(format!("{}: {}", &e_msg, e)))?;
         self._process_bytes(chunk, decompress, decompress_str,
                             decompress_stle)
@@ -82,37 +79,32 @@ impl DataGenerator  {
                         match e.name().as_ref() {
                             b"c" => {
                                 let mut struct_csv = StructCsv::new();
-                                for i in e.attributes() {
-                                    match i {
-                                        Ok(x) => {
-                                            match x.key.into_inner() {
-                                                b"s" => {
-                                                    struct_csv.set_s_attr(
-                                                        x.key.into_inner().to_vec());
-                                                    let msg = "structual parse wrong";
-                                                    let a = String::from_utf8(x.value.to_vec()).
-                                                        map_err(|e| PyValueError::new_err(format!("{}: {}", msg, e)))?.
-                                                        parse::<usize>().
-                                                        map_err(|e| PyValueError::new_err(format!("{}: {}", msg, e)))?;
-                                                    struct_csv.set_s_attr_v(a);
-                                                }
-                                                b"t" => {
-                                                    struct_csv.set_t_attr(
-                                                        x.key.into_inner().to_vec());
-                                                }
-                                                b"r" => {
-                                                    let a = String::from_utf8_lossy(
-                                                        &*x.clone().value.into_owned()).
-                                                        into_owned();
-                                                    let b = column_to_number(a)?;
-                                                    struct_csv.set_r_attr_v(b - 1);
-                                                }
-                                                _ => {}
-                                            }
-                                            s = Some(struct_csv.clone());
+                                for x in e.attributes().flatten() {
+                                    match x.key.into_inner() {
+                                        b"s" => {
+                                            struct_csv.set_s_attr(
+                                                x.key.into_inner().to_vec());
+                                            let msg = "structual parse wrong";
+                                            let a = String::from_utf8(x.value.to_vec()).
+                                                map_err(|e| PyValueError::new_err(format!("{}: {}", msg, e)))?.
+                                                parse::<usize>().
+                                                map_err(|e| PyValueError::new_err(format!("{}: {}", msg, e)))?;
+                                            struct_csv.set_s_attr_v(a);
                                         }
-                                        Err(_) => {}
+                                        b"t" => {
+                                            struct_csv.set_t_attr(
+                                                x.key.into_inner().to_vec());
+                                        }
+                                        b"r" => {
+                                            let a = String::from_utf8_lossy(
+                                                &x.clone().value).
+                                                into_owned();
+                                            let b = column_to_number(a)?;
+                                            struct_csv.set_r_attr_v(b - 1);
+                                        }
+                                        _ => {}
                                     }
+                                    s = Some(struct_csv.clone());
                                 }
                             },
                             b"v" => is_v = true,
@@ -120,46 +112,40 @@ impl DataGenerator  {
                         }
                     }
                     Ok(Event::End(e)) => {
-                        match e.name().as_ref() {
-                            b"row" => {
-                                let i = row_a.into_iter().map(|a| {
-                                    match a {
-                                        Some(s) => {
-                                            let msg = "structual wrong";
-                                            s.clone().
-                                                get_value(&navi, &name_resolve, &style_resolve).
-                                                map_err(|e| PyValueError::new_err(format!("{}: {}", msg, e)))
-                                        },
-                                        None => Ok("".to_string())
-                                    }
-                                }).collect::<Result<Vec<String>, PyErr>>()?.join(",");
-                                c_list.push(i);
-                                count += 1;
-                                if count == chunk {
-                                    let val = c_list.join("\n");
-                                    if let Err(e) = tx1.send(val) {
-                                        let msg = format!("failed to send message: {}", e);
-                                        return Err(PyValueError::new_err(msg));
-                                    };
-                                    count = 0;
-                                    c_list = Vec::new();
+                        if let b"row" = e.name().as_ref() {
+                            let i = row_a.into_iter().map(|a| {
+                                match a {
+                                    Some(s) => {
+                                        let msg = "structual wrong";
+                                        s.clone().
+                                            get_value(&navi, &name_resolve, &style_resolve).
+                                            map_err(|e| PyValueError::new_err(format!("{}: {}", msg, e)))
+                                    },
+                                    None => Ok("".to_string())
                                 }
-                                row_a = vec![None; width_len.unwrap()];
-                            },
-                            _ => {},
+                            }).collect::<Result<Vec<String>, PyErr>>()?.join(",");
+                            c_list.push(i);
+                            count += 1;
+                            if count == chunk {
+                                let val = c_list.join("\n");
+                                if let Err(e) = tx1.send(val) {
+                                    let msg = format!("failed to send message: {}", e);
+                                    return Err(PyValueError::new_err(msg));
+                                };
+                                count = 0;
+                                c_list = Vec::new();
+                            }
+                            row_a = vec![None; width_len.unwrap()];
                         }
                     }
                     Ok(Event::Text(e)) => {
                         if is_v {
-                            match s {
-                                Some(ref mut v) => {
-                                    let val = common_match_fn(e)?;
-                                    v.set_value(val);
-                                    let i = v.get_r_attr_v();
-                                    row_a[i] = Some(v.clone());
-                                    s = None;
-                                }
-                                None => {}
+                            if let Some(ref mut v) = s {
+                                let val = common_match_fn(e)?;
+                                v.set_value(val);
+                                let i = v.get_r_attr_v();
+                                row_a[i] = Some(v.clone());
+                                s = None;
                             }
                             is_v = false;
                         }
@@ -176,9 +162,9 @@ impl DataGenerator  {
                             let dim_tag = String::from_utf8_lossy(&buffer).into_owned();
                             let dim_tag_contains_colon = dim_tag.contains(':');
                             let dim_tag_last = if dim_tag_contains_colon {
-                                dim_tag.split(":").last().unwrap()
+                                dim_tag.split(':').last().unwrap()
                             } else {
-                                let msg = format!("wrong dimension tag");
+                                let msg = "wrong dimension tag".to_string();
                                 return Err(PyValueError::new_err(msg));
                             };
                             let idx_num = column_to_number(dim_tag_last.to_string())?;
@@ -212,12 +198,12 @@ impl DataGenerator  {
 }
 
 fn date_ident(style_resolve: (Vec<String>, HashMap<String, String>))
-    -> Result<IndexMap<String, bool>, PyErr> {
+    -> Result<Vec<(String, bool)>, PyErr> {
     // style.xml cellXfsタグから情報を取得し日付判定mapを作成する
     let style_vec = style_resolve.0;
     let style_map = style_resolve.1;
 
-    let resolve_map: Result<IndexMap<String, bool>, PyErr> =
+    let resolve_map: Result<Vec<(String, bool)>, PyErr> =
         style_vec.into_iter().map(|num_fmt_str|{
 
         let msg = "style parse wrong";
@@ -230,11 +216,9 @@ fn date_ident(style_resolve: (Vec<String>, HashMap<String, String>))
             14..=22 => true,
             _ => {
                 // numFmtの例外の場合はstyleに y が２個以上, m が１個以上の場合は trueとしている
-                let bool_ = match style_map.get(&num_fmt_str) {
-                    Some(s) if s.matches('y').count() >= 2 &&
-                        s.matches('m').count() >= 1 => true,
-                    _ => false
-                };
+                let bool_ = matches!(
+                    style_map.get(&num_fmt_str),
+                    Some(s) if s.matches('y').count() >= 2 && s.matches('m').count() >= 1);
                 bool_
             },
         };
@@ -301,9 +285,9 @@ fn stle_resolve(content: Vec<u8>) ->  Result<(Vec<String>, HashMap<String, Strin
 fn extract_target_str(target_tag: &str, target_attr: &str, target_end: &str, error_msg: &str)
                       -> Result<String, PyErr> {
     let num_fmt_id_start = target_tag.find(target_attr).
-        ok_or(PyValueError::new_err(format!("{}", error_msg)))? + target_attr.len();
+        ok_or(PyValueError::new_err(error_msg.to_string()))? + target_attr.len();
     let num_fmt_id_end = target_tag[num_fmt_id_start..].find(target_end).
-        ok_or(PyValueError::new_err(format!("{}", error_msg)))? + num_fmt_id_start;
+        ok_or(PyValueError::new_err(error_msg.to_string()))? + num_fmt_id_start;
     Ok(target_tag[num_fmt_id_start..num_fmt_id_end].to_string())
 }
 
@@ -324,7 +308,7 @@ fn str_resolve(content: Vec<u8>) ->  Result<Vec<String>, PyErr> {
                 }
             }
             Ok(Event::Text(e)) => {
-                if &is_text & !&no_text_ {
+                if is_text & !&no_text_ {
                     let val = common_match_fn(e)?;
                     name_resolve.push(val);
                     is_text = false;
@@ -356,7 +340,7 @@ fn common_match_fn(e: BytesText) -> Result<String, PyErr> {
 
 fn column_to_number(s: String) -> Result<usize, PyErr> {
     let e_msg = "Error: Unable to convert column to number";
-    let column_index= s.to_uppercase().chars().into_iter().
+    let column_index= s.to_uppercase().chars().
         filter(|a| a.is_ascii_uppercase()).
         map(|a| a as usize - 64).
         reduce(|acc, x| acc * 26 + x).

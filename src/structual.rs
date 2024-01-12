@@ -1,5 +1,4 @@
 use chrono::{Duration, NaiveDateTime};
-use indexmap::IndexMap;
 use pyo3::exceptions::PyValueError;
 use pyo3::PyErr;
 
@@ -40,7 +39,7 @@ impl StructCsv {
     }
 
     pub(crate) fn get_r_attr_v(&self) -> usize {
-        self.r_attr_v.clone()
+        self.r_attr_v
     }
 
     pub(crate) fn set_value(&mut self, val: String) {
@@ -48,7 +47,7 @@ impl StructCsv {
     }
 
     pub(crate) fn get_value(&self, excel_base_date: &NaiveDateTime,
-                            name_resolve: &Vec<String>, style_resolve: &IndexMap<String, bool>)
+                            name_resolve: &[String], style_resolve: &[(String, bool)])
         -> Result<String, PyErr> {
         if self.t_attr == b"t".to_vec() {
             let i: usize = match self.value.parse::<usize>() {
@@ -58,20 +57,17 @@ impl StructCsv {
                     return Err(PyValueError::new_err(msg))
                 }
             };
-            Ok(format!("\"{}\"", name_resolve[i].as_str().to_string()))
+            Ok(format!("\"{}\"", name_resolve[i].as_str()))
         } else if self.s_attr == b"s".to_vec() {
-            let style_idx = self.s_attr_v.clone();
-            let result = match style_resolve.values().nth(style_idx) {
-                Some(bool_val) => {
-                    if *bool_val {
-                        let a = &self.value[..];
-                        self.excel_date_to_datetime(a, excel_base_date)?
-                    }else{
-                        self.value.as_str().to_string()
-                    }
-                },
-                _ => self.value.as_str().to_string()
-            };
+            let style_idx = self.s_attr_v;
+            let (_, boo_val) = &style_resolve[style_idx];
+            let result =
+                if *boo_val {
+                    let a = &self.value[..];
+                    self.excel_date_to_datetime(a, excel_base_date)?
+                }else{
+                    self.value.as_str().to_string()
+                };
             Ok(result)
         } else {
             Ok(self.value.as_str().to_string())
