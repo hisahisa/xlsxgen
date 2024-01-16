@@ -8,6 +8,7 @@ pub(crate) struct StructCsv {
     s_attr: Vec<u8>,
     s_attr_v: usize,
     t_attr: Vec<u8>,
+    t_attr_v: Vec<u8>,
     r_attr_v: usize
 }
 
@@ -18,6 +19,7 @@ impl StructCsv {
             s_attr: Vec::new(),
             s_attr_v: 0,
             t_attr: Vec::new(),
+            t_attr_v: Vec::new(),
             r_attr_v: 0
         }
     }
@@ -32,6 +34,10 @@ impl StructCsv {
 
     pub(crate) fn set_t_attr(&mut self, val: Vec<u8>) {
         self.t_attr = val;
+    }
+
+    pub(crate) fn set_t_attr_v(&mut self, val: Vec<u8>) {
+        self.t_attr_v = val;
     }
 
     pub(crate) fn set_r_attr_v(&mut self, val: usize) {
@@ -50,14 +56,18 @@ impl StructCsv {
                             name_resolve: &[String], style_resolve: &[(String, bool)])
         -> Result<String, PyErr> {
         if self.t_attr == b"t".to_vec() {
-            let i: usize = match self.value.parse::<usize>() {
-                Ok(i) => i,
-                Err(e) => {
-                    let msg = format!("unable to parse address value: {}", e);
-                    return Err(PyValueError::new_err(msg))
-                }
-            };
-            Ok(format!("\"{}\"", name_resolve[i].as_str()))
+            if self.t_attr_v == b"str".to_vec() {
+                Ok(format!("\"{}\"", self.value.as_str()))
+            } else {
+                let i: usize = match self.value.parse::<usize>() {
+                    Ok(i) => i,
+                    Err(e) => {
+                        let msg = format!("unable to parse address value: {}", e);
+                        return Err(PyValueError::new_err(msg))
+                    }
+                };
+                Ok(format!("\"{}\"", name_resolve[i].as_str()))
+            }
         } else if self.s_attr == b"s".to_vec() {
             let style_idx = self.s_attr_v;
             let (_, boo_val) = &style_resolve[style_idx];

@@ -94,6 +94,8 @@ impl DataGenerator  {
                                         b"t" => {
                                             struct_csv.set_t_attr(
                                                 x.key.into_inner().to_vec());
+                                            struct_csv.set_t_attr_v(
+                                                x.clone().value.to_vec());
                                         }
                                         b"r" => {
                                             let a = String::from_utf8_lossy(
