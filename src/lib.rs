@@ -93,12 +93,12 @@ impl DataGenerator  {
                                             let a = String::from_utf8(x.value.to_vec());
                                             if a.is_err() {
                                                 let msg = "unable to parse utf8 string".to_string();
-                                                let _ = tx_err.send(msg.clone());
+                                                let _ = tx_err.send(msg);
                                             }
                                             let b = a?.parse::<usize>();
                                             if b.is_err() {
                                                 let msg = "unable to parse usize".to_string();
-                                                let _ = tx_err.send(msg.clone());
+                                                let _ = tx_err.send(msg);
                                             }
                                             struct_csv.set_s_attr_v(b.unwrap());
                                         }
