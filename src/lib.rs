@@ -17,7 +17,9 @@ use crate::structual::StructCsv;
 #[pyclass]
 struct DataGenerator {
     pro: Sender<String>,
-    con: Receiver<String>
+    con: Receiver<String>,
+    e_pro: Sender<String>,
+    e_con: Receiver<String>,
 }
 
 #[pymethods]
@@ -25,9 +27,12 @@ impl DataGenerator  {
     #[new]
     fn new() -> Self {
         let (tx, rx) = mpsc::channel();
+        let (tx_err, rx_err) = mpsc::channel();
         DataGenerator {
             pro: tx,
-            con: rx
+            con: rx,
+            e_pro: tx_err,
+            e_con: rx_err,
         }
     }
 
@@ -69,8 +74,9 @@ impl DataGenerator  {
 
         let navi = create_navi();
         let tx1 = mpsc::Sender::clone(&self.pro);
+        let tx_err = mpsc::Sender::clone(&self.e_pro);
         let mut count = 0;
-        let closure = move || -> Result<(), PyErr>{
+        let closure = move || -> PyResult<()> {
             let mut width_len: Option<usize> = None;
             let mut xml_reader = Reader::from_reader(content.as_ref());
             loop {
@@ -84,12 +90,17 @@ impl DataGenerator  {
                                         b"s" => {
                                             struct_csv.set_s_attr(
                                                 x.key.into_inner().to_vec());
-                                            let msg = "structual parse wrong";
-                                            let a = String::from_utf8(x.value.to_vec()).
-                                                map_err(|e| PyValueError::new_err(format!("{}: {}", msg, e)))?.
-                                                parse::<usize>().
-                                                map_err(|e| PyValueError::new_err(format!("{}: {}", msg, e)))?;
-                                            struct_csv.set_s_attr_v(a);
+                                            let a = String::from_utf8(x.value.to_vec());
+                                            if a.is_err() {
+                                                let msg = "unable to parse utf8 string".to_string();
+                                                let _ = tx_err.send(msg.clone());
+                                            }
+                                            let b = a?.parse::<usize>();
+                                            if b.is_err() {
+                                                let msg = "unable to parse usize".to_string();
+                                                let _ = tx_err.send(msg.clone());
+                                            }
+                                            struct_csv.set_s_attr_v(b.unwrap());
                                         }
                                         b"t" => {
                                             struct_csv.set_t_attr(
@@ -118,21 +129,26 @@ impl DataGenerator  {
                             let i = row_a.into_iter().map(|a| {
                                 match a {
                                     Some(s) => {
-                                        let msg = "structual wrong";
-                                        s.clone().
-                                            get_value(&navi, &name_resolve, &style_resolve).
-                                            map_err(|e| PyValueError::new_err(format!("{}: {}", msg, e)))
+                                        let res: PyResult<String> = s.clone().
+                                            get_value(&navi, &name_resolve,
+                                                      &style_resolve, tx_err.clone());
+                                        if let Err(err) = &res {
+                                            let msg = format!("unable to parse structual: {}", err);
+                                            let _ = tx_err.send(msg);
+                                        };
+                                        res
                                     },
                                     None => Ok("".to_string())
                                 }
-                            }).collect::<Result<Vec<String>, PyErr>>()?.join(",");
-                            c_list.push(i);
+                            }).collect::<PyResult<Vec<String>>>();
+                            let j = i?.join(",");
+                            c_list.push(j);
                             count += 1;
                             if count == chunk {
                                 let val = c_list.join("\n");
                                 if let Err(e) = tx1.send(val) {
                                     let msg = format!("failed to send message: {}", e);
-                                    return Err(PyValueError::new_err(msg));
+                                    let _ = tx_err.send(msg);
                                 };
                                 count = 0;
                                 c_list = Vec::new();
@@ -157,7 +173,7 @@ impl DataGenerator  {
                     }
                     Err(e) => {
                         let msg = format!("something wrong: {}", e);
-                        return Err(PyException::new_err(msg));
+                        let _ = tx_err.send(msg);
                     }
                     _ => {
                         if buffer.starts_with(dimension_tag){
@@ -166,8 +182,9 @@ impl DataGenerator  {
                             let dim_tag_last = if dim_tag_contains_colon {
                                 dim_tag.split(':').last().unwrap()
                             } else {
-                                let msg = "wrong dimension tag".to_string();
-                                return Err(PyValueError::new_err(msg));
+                                let msg = "wrong dimension tag";
+                                let _ = tx_err.send(msg.to_string().clone());
+                                msg
                             };
                             let idx_num = column_to_number(dim_tag_last.to_string())?;
                             row_a = vec![None; idx_num];
@@ -182,7 +199,7 @@ impl DataGenerator  {
             for v in vec![last_data, last_msg].into_iter(){
                 if let Err(e) = tx1.send(v) {
                     let msg = format!("failed to send message: {}", e);
-                    return Err(PyValueError::new_err(msg));
+                    let _ = tx_err.send(msg);
                 };
             }
             Ok(())
@@ -192,6 +209,9 @@ impl DataGenerator  {
     }
 
     fn generate_data_chunk(&mut self) -> PyResult<String> {
+        if let Ok(err_msg) = self.e_con.try_recv() {
+            return Err(PyValueError::new_err(err_msg));
+        }
         let e_msg = "failed to recv message";
         let data = self.con.recv().
             map_err(|e| PyValueError::new_err(format!("{}: {}", e_msg, e)))?;
@@ -200,12 +220,12 @@ impl DataGenerator  {
 }
 
 fn date_ident(style_resolve: (Vec<String>, HashMap<String, String>))
-    -> Result<Vec<(String, bool)>, PyErr> {
+    -> PyResult<Vec<(String, bool)>> {
     // style.xml cellXfsタグから情報を取得し日付判定mapを作成する
     let style_vec = style_resolve.0;
     let style_map = style_resolve.1;
 
-    let resolve_map: Result<Vec<(String, bool)>, PyErr> =
+    let resolve_map: PyResult<Vec<(String, bool)>> =
         style_vec.into_iter().map(|num_fmt_str|{
 
         let msg = "style parse wrong";
@@ -229,7 +249,7 @@ fn date_ident(style_resolve: (Vec<String>, HashMap<String, String>))
     resolve_map
 }
 
-fn stle_resolve(content: Vec<u8>) ->  Result<(Vec<String>, HashMap<String, String>), PyErr> {
+fn stle_resolve(content: Vec<u8>) ->  PyResult<(Vec<String>, HashMap<String, String>)> {
     // excelのstyle解決
     let mut xml_reader = Reader::from_reader(content.as_ref());
     let mut buffer = Vec::new();
@@ -285,7 +305,7 @@ fn stle_resolve(content: Vec<u8>) ->  Result<(Vec<String>, HashMap<String, Strin
 }
 
 fn extract_target_str(target_tag: &str, target_attr: &str, target_end: &str, error_msg: &str)
-                      -> Result<String, PyErr> {
+                      -> PyResult<String> {
     let num_fmt_id_start = target_tag.find(target_attr).
         ok_or(PyValueError::new_err(error_msg.to_string()))? + target_attr.len();
     let num_fmt_id_end = target_tag[num_fmt_id_start..].find(target_end).
@@ -293,7 +313,7 @@ fn extract_target_str(target_tag: &str, target_attr: &str, target_end: &str, err
     Ok(target_tag[num_fmt_id_start..num_fmt_id_end].to_string())
 }
 
-fn str_resolve(content: Vec<u8>) ->  Result<Vec<String>, PyErr> {
+fn str_resolve(content: Vec<u8>) ->  PyResult<Vec<String>> {
     // excelの名称解決
     let mut xml_reader = Reader::from_reader(content.as_ref());
     let mut buffer = Vec::new();
@@ -329,7 +349,7 @@ fn str_resolve(content: Vec<u8>) ->  Result<Vec<String>, PyErr> {
     Ok(name_resolve)
 }
 
-fn common_match_fn(e: BytesText) -> Result<String, PyErr> {
+fn common_match_fn(e: BytesText) -> PyResult<String> {
     let val = match e.unescape() {
         Ok(v) => {v.into_owned()}
         Err(err) => {
@@ -340,7 +360,7 @@ fn common_match_fn(e: BytesText) -> Result<String, PyErr> {
     Ok(val)
 }
 
-fn column_to_number(s: String) -> Result<usize, PyErr> {
+fn column_to_number(s: String) -> PyResult<usize> {
     let e_msg = "Error: Unable to convert column to number";
     let column_index= s.to_uppercase().chars().
         filter(|a| a.is_ascii_uppercase()).

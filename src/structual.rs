@@ -1,6 +1,7 @@
+use std::sync::mpsc::Sender;
 use chrono::{Duration, NaiveDateTime};
 use pyo3::exceptions::PyValueError;
-use pyo3::PyErr;
+use pyo3::PyResult;
 
 #[derive( Debug, Clone)]
 pub(crate) struct StructCsv {
@@ -52,21 +53,21 @@ impl StructCsv {
         self.value = val;
     }
 
-    pub(crate) fn get_value(&self, excel_base_date: &NaiveDateTime,
-                            name_resolve: &[String], style_resolve: &[(String, bool)])
-        -> Result<String, PyErr> {
+    pub(crate) fn get_value(&self, excel_base_date: &NaiveDateTime, name_resolve: &[String],
+                            style_resolve: &[(String, bool)], tx_err: Sender<String>) -> PyResult<String> {
         if self.t_attr == b"t".to_vec() {
             if self.t_attr_v == b"str".to_vec() {
                 Ok(format!("\"{}\"", self.value.as_str()))
             } else {
-                let i: usize = match self.value.parse::<usize>() {
-                    Ok(i) => i,
-                    Err(e) => {
-                        let msg = format!("unable to parse address value: {}", e);
-                        return Err(PyValueError::new_err(msg))
+                let res = match self.value.parse::<usize>() {
+                    Ok(i) => format!("\"{}\"", name_resolve[i].as_str()),
+                    Err(_) => {
+                        let msg = format!("unable to parse value: {}", &self.value);
+                        let _ = tx_err.send(msg.clone());
+                        msg
                     }
                 };
-                Ok(format!("\"{}\"", name_resolve[i].as_str()))
+                Ok(res)
             }
         } else if self.s_attr == b"s".to_vec() {
             let style_idx = self.s_attr_v;
@@ -85,7 +86,7 @@ impl StructCsv {
     }
 
     fn excel_date_to_datetime(&self, val: &str, excel_base_date: &NaiveDateTime)
-        -> Result<String, PyErr> {
+        -> PyResult<String> {
         // エクセルの数値を日数と秒に分割
         let day_msg = "unable to parse day value";
         let days_str = val.split('.').next().
