@@ -99,7 +99,7 @@ impl DataGenerator  {
                         &second_out
                     };
                     is_last = true;
-                    find_vec_index_rev(&a, &target_terminal_vec).map(|index| a[0..index+6].to_vec())
+                    find_vec_index_rev(a, &target_terminal_vec).map(|index| a[0..index+6].to_vec())
                 } else if let Some(index) = find_vec_index_rev(&buffer_outer, &target_terminal_vec) {
 
                     let (current_out, other_out) = if is_upper {
@@ -318,9 +318,9 @@ impl DataGenerator  {
 
 fn common_xml_handler(mut xml_reader: Reader<&[u8]>,
                       tx1: Sender<String>, tx_err: Sender<String>,
-                      style_resolve: &Vec<(String, bool)>, name_resolve: &Vec<String>,
+                      style_resolve: &[(String, bool)], name_resolve: &[String],
                       navi: &NaiveDateTime, chunk: &i32) -> PyResult<Vec<String>> {
-    let mut buffer = Vec::new();
+    let mut buffer: Vec<u8> = Vec::new();
     let mut c_list: Vec<String> = Vec::new();
     let mut row_a: Vec<Option<StructCsv>> = Vec::new();
     let mut s: Option<StructCsv> = None;
@@ -378,8 +378,8 @@ fn common_xml_handler(mut xml_reader: Reader<&[u8]>,
                         match a {
                             Some(s) => {
                                 let res: PyResult<String> = s.clone().
-                                    get_value(&navi, &name_resolve,
-                                              &style_resolve, tx_err.clone());
+                                    get_value(navi, name_resolve,
+                                              style_resolve, tx_err.clone());
                                 if let Err(err) = &res {
                                     let msg = format!("unable to parse structual: {}", err);
                                     let _ = tx_err.send(msg);
@@ -451,8 +451,8 @@ fn find_vec_index_rev<T: PartialEq>(vector: &[T], sub_vec: &[T]) -> Option<usize
     let s_vec_len = sub_vec.len();
 
     for i in (s_vec_len..=vector.len()).rev() {
-        if i >= s_vec_len && &vector[(i - &s_vec_len)..i] == sub_vec {
-            return Some(&i - &s_vec_len)
+        if i >= s_vec_len && &vector[(i - s_vec_len)..i] == sub_vec {
+            return Some(i - s_vec_len)
         }
     }
     None
