@@ -13,16 +13,17 @@ use quick_xml::Reader;
 use quick_xml::events::{BytesText, Event};
 use chrono::NaiveDateTime;
 use flate2::read::ZlibDecoder;
+use std::sync::Mutex;
 
 use crate::structual::StructCsv;
 
 
 #[pyclass]
 struct DataGenerator {
-    pro: Sender<String>,
-    con: Receiver<String>,
-    e_pro: Sender<String>,
-    e_con: Receiver<String>,
+    pro: Mutex<Sender<String>>,
+    con: Mutex<Receiver<String>>,
+    e_pro: Mutex<Sender<String>>,
+    e_con: Mutex<Receiver<String>>,
 }
 
 #[pymethods]
@@ -32,14 +33,14 @@ impl DataGenerator  {
         let (tx, rx) = mpsc::channel();
         let (tx_err, rx_err) = mpsc::channel();
         DataGenerator {
-            pro: tx,
-            con: rx,
-            e_pro: tx_err,
-            e_con: rx_err,
+            pro: Mutex::new(tx),
+            con: Mutex::new(rx),
+            e_pro: Mutex::new(tx_err),
+            e_con: Mutex::new(rx_err),
         }
     }
 
-    fn process_bytes_zlib(&self, chunk: i32, content_: &[u8], str_content_: &[u8],
+    fn process_bytes_zlib(&self, chunk: u32, content_: &[u8], str_content_: &[u8],
                           stle_content_: &[u8]) -> PyResult<()> {
         let e_msg = "failed to decompress content";
         let content = content_.to_vec();
@@ -50,23 +51,16 @@ impl DataGenerator  {
         self._process_bytes_zlib(chunk, content, decompress_str, decompress_stle)
     }
 
-    fn _process_bytes_zlib(&self, chunk: i32, content: Vec<u8>, str_content: Vec<u8>, stle_content: Vec<u8>) -> PyResult<()> {
+    fn _process_bytes_zlib(&self, chunk: u32, content: Vec<u8>, str_content: Vec<u8>, stle_content: Vec<u8>) -> PyResult<()> {
 
         let style_vec: (Vec<String>, HashMap<String, String>) = stle_resolve(stle_content)?;
         let style_resolve: Vec<(String, bool)> = date_ident(style_vec)?;
         let name_resolve = str_resolve(str_content)?;
         let mut c_list: Vec<String> = Vec::new();
-        let mut row_a: Vec<Option<StructCsv>> = Vec::new();
-        let mut is_v = false;
-        let mut s: Option<StructCsv> = None;
         let target_terminal_vec: Vec<u8> = vec![60, 47, 114, 111, 119, 62]; // </row> tag
 
-        let navi = create_navi();
-        let tx1 = mpsc::Sender::clone(&self.pro);
-        let tx_err = mpsc::Sender::clone(&self.pro);
-        let tx2 = mpsc::Sender::clone(&self.pro);
-        let tx_err2 = mpsc::Sender::clone(&self.pro);
-        // let mut count = 0;
+        let tx1 = self.pro.lock().unwrap().clone();
+        let tx_err = self.e_pro.lock().unwrap().clone();
         let closure = move || -> Result<(), PyErr>{
             let mut first_out = Vec::<u8>::new();
             let mut second_out = Vec::<u8>::new();
@@ -76,10 +70,10 @@ impl DataGenerator  {
             let mut width_len: Option<usize> = None;
             let mut is_last = false;
 
-            loop {
+            let c_list2 = loop {
 
                 if is_last {
-                    break;
+                    break c_list;
                 }
 
                 let mut buffer_outer = vec![0; target_len];
@@ -119,139 +113,21 @@ impl DataGenerator  {
                 };
 
                 if let Some(x) = &x {
-                    let mut xml_reader = Reader::from_reader(x.as_ref());
-                    let mut buffer = Vec::new();
-                    //let mut c_list: Vec<String> = Vec::new();
-                    // let mut row_a: Vec<Option<StructCsv>> = Vec::new();
-                    // let mut s: Option<StructCsv> = None;
-                    let mut count: i32 = 0;
-                    // let mut is_v = false;
-                    // let mut width_len: Option<usize> = None;
-                    loop {
-                        match xml_reader.read_event_into(&mut buffer) {
-                            Ok(Event::Start(e)) => {
-                                match e.name().as_ref() {
-                                    b"c" => {
-                                        let mut struct_csv = StructCsv::new();
-                                        for x in e.attributes().flatten() {
-                                            match x.key.into_inner() {
-                                                b"s" => {
-                                                    struct_csv.set_s_attr(
-                                                        x.key.into_inner().to_vec());
-                                                    let a = String::from_utf8(x.value.to_vec());
-                                                    if a.is_err() {
-                                                        let msg = "unable to parse utf8 string".to_string();
-                                                        let _ = tx_err.send(msg);
-                                                    }
-                                                    let b = a?.parse::<usize>();
-                                                    if b.is_err() {
-                                                        let msg = "unable to parse usize".to_string();
-                                                        let _ = tx_err.send(msg);
-                                                    }
-                                                    struct_csv.set_s_attr_v(b.unwrap());
-                                                }
-                                                b"t" => {
-                                                    struct_csv.set_t_attr(
-                                                        x.key.into_inner().to_vec());
-                                                    struct_csv.set_t_attr_v(
-                                                        x.clone().value.to_vec());
-                                                }
-                                                b"r" => {
-                                                    let a = String::from_utf8_lossy(
-                                                        &x.clone().value).
-                                                        into_owned();
-                                                    let b = column_to_number(a)?;
-                                                    struct_csv.set_r_attr_v(b - 1);
-                                                }
-                                                _ => {}
-                                            }
-                                            s = Some(struct_csv.clone());
-                                        }
-                                    },
-                                    b"v" => is_v = true,
-                                    _ => {},
-                                }
-                            }
-                            Ok(Event::End(e)) => {
-                                if let b"row" = e.name().as_ref() {
-                                    let i = row_a.into_iter().map(|a| {
-                                        match a {
-                                            Some(s) => {
-                                                let res: PyResult<String> = s.clone().
-                                                    get_value(&navi, &name_resolve,
-                                                              &style_resolve, tx_err.clone());
-                                                if let Err(err) = &res {
-                                                    let msg = format!("unable to parse structual: {}", err);
-                                                    let _ = tx_err.send(msg);
-                                                };
-                                                res
-                                            },
-                                            None => Ok("".to_string())
-                                        }
-                                    }).collect::<PyResult<Vec<String>>>();
-                                    let j = i?.join(",");
-                                    c_list.push(j);
-                                    count += 1;
-                                    if count == chunk {
-                                        let val = c_list.join("\n");
-                                        if let Err(e) = tx1.send(val) {
-                                            let msg = format!("failed to send message: {}", e);
-                                            let _ = tx_err.send(msg);
-                                        };
-                                        count = 0;
-                                        c_list = Vec::new();
-                                    }
-                                    row_a = vec![None; width_len.unwrap()];
-                                }
-                            }
-                            Ok(Event::Text(e)) => {
-                                if is_v {
-                                    if let Some(ref mut v) = s {
-                                        let val = common_match_fn(e)?;
-                                        v.set_value(val);
-                                        let i = v.get_r_attr_v();
-                                        row_a[i] = Some(v.clone());
-                                        s = None;
-                                    }
-                                    is_v = false;
-                                }
-                            }
-                            Ok(Event::Eof) => {
-                                break;
-                            }
-                            Err(e) => {
-                                let msg = format!("something wrong: {}", e);
-                                let _ = tx_err.send(msg);
-                            }
-                            _ => {
-                                // tag "dimension ref=\"xx:yy\"/" の属性取得
-                                let dimension_tag = b"dimension";
-                                if buffer.starts_with(dimension_tag){
-                                    let dim_tag = String::from_utf8_lossy(&buffer).into_owned();
-                                    let dim_tag_contains_colon = dim_tag.contains(':');
-                                    let dim_tag_last = if dim_tag_contains_colon {
-                                        dim_tag.split(':').last().unwrap()
-                                    } else {
-                                        let msg = "wrong dimension tag";
-                                        let _ = tx_err.send(msg.to_string().clone());
-                                        msg
-                                    };
-                                    let idx_num = column_to_number(dim_tag_last.to_string())?;
-                                    row_a = vec![None; idx_num];
-                                    width_len = Some(idx_num);
-                                }
-                            }
-                        }
-                        buffer.clear();
+                    if width_len.is_none() {
+                        let xml_reader = Reader::from_reader(x.as_ref());
+                        width_len = common_xml_length(xml_reader, tx_err.clone())?;
                     }
+                    let xml_reader = Reader::from_reader(x.as_ref());
+                    c_list = common_xml_handler(xml_reader, tx1.clone(), tx_err.clone(),
+                                                      &style_resolve, &name_resolve, c_list, &width_len, &chunk)?;
                 }
-            }
-            let last_data = c_list.join("\n");
+            };
+            let last_data = c_list2.join("\n");
             let last_msg = String::from("finish");
             for v in vec![last_data, last_msg].into_iter(){
-                if let Err(e) = tx2.send(v) {
+                if let Err(e) = tx1.send(v) {
                     let msg = format!("failed to send message: {}", e);
-                    let _ = tx_err2.send(msg);
+                    let _ = tx_err.send(msg);
                 };
             }
             Ok(())
@@ -260,7 +136,8 @@ impl DataGenerator  {
         Ok(())
     }
 
-    fn process_bytes(&self, chunk: i32, content_: &[u8], str_content_: &[u8],
+
+    fn process_bytes(&self, chunk: u32, content_: &[u8], str_content_: &[u8],
                      stle_content_: &[u8]) -> PyResult<()> {
         let content = content_.to_vec();
         let str_content = str_content_.to_vec();
@@ -268,35 +145,28 @@ impl DataGenerator  {
         self._process_bytes(chunk, content, str_content, stle_content)
     }
 
-    fn _process_bytes(&self, chunk: i32, content: Vec<u8>, str_content: Vec<u8>,
+    fn _process_bytes(&self, chunk: u32, content: Vec<u8>, str_content: Vec<u8>,
                       stle_content: Vec<u8>) -> PyResult<()> {
 
         let style_vec: (Vec<String>, HashMap<String, String>) = stle_resolve(stle_content)?;
         let style_resolve: Vec<(String, bool)> = date_ident(style_vec)?;
         let name_resolve: Vec<String> = str_resolve(str_content)?;
-        // let buffer = Vec::new();
-        // let c_list: Vec<String> = Vec::new();
-        // let row_a: Vec<Option<StructCsv>> = Vec::new();
-        // let is_v = false;
-        // let s: Option<StructCsv> = None;
+        let c_list: Vec<String> = Vec::new();
+        let tx1 = self.pro.lock().unwrap().clone();
+        let tx_err = self.e_pro.lock().unwrap().clone();
 
-        let navi: NaiveDateTime = create_navi();
-        let tx1 = mpsc::Sender::clone(&self.pro);
-        let tx2 = mpsc::Sender::clone(&self.pro);
-        let tx_err = mpsc::Sender::clone(&self.e_pro);
-        let tx_err2 = mpsc::Sender::clone(&self.e_pro);
-        // let count = 0;
         let closure = move || -> PyResult<()> {
-            // let mut width_len: Option<usize> = None;
+            let xml_reader = Reader::from_reader(content.as_ref());
+            let width_len = common_xml_length(xml_reader, tx_err.clone())?;
             let xml_reader: Reader<&[u8]> = Reader::from_reader(content.as_ref());
-            let c_list = common_xml_handler(xml_reader, tx1, tx_err,
-                                            &style_resolve, &name_resolve, &navi, &chunk)?;
+            let c_list = common_xml_handler(xml_reader, tx1.clone(), tx_err.clone(),
+                                            &style_resolve, &name_resolve, c_list, &width_len, &chunk)?;
             let last_data = c_list.join("\n");
             let last_msg = String::from("finish");
             for v in vec![last_data, last_msg].into_iter(){
-                if let Err(e) = tx2.send(v) {
+                if let Err(e) = tx1.send(v) {
                     let msg = format!("failed to send message: {}", e);
-                    let _ = tx_err2.send(msg);
+                    let _ = tx_err.send(msg);
                 };
             }
             Ok(())
@@ -306,11 +176,11 @@ impl DataGenerator  {
     }
 
     fn generate_data_chunk(&mut self) -> PyResult<String> {
-        if let Ok(err_msg) = self.e_con.try_recv() {
+        if let Ok(err_msg) = self.e_con.lock().unwrap().try_recv() {
             return Err(PyValueError::new_err(err_msg));
         }
         let e_msg = "failed to recv message";
-        let data = self.con.recv().
+        let data = self.con.lock().unwrap().recv().
             map_err(|e| PyValueError::new_err(format!("{}: {}", e_msg, e)))?;
         Ok(data)
     }
@@ -319,15 +189,15 @@ impl DataGenerator  {
 fn common_xml_handler(mut xml_reader: Reader<&[u8]>,
                       tx1: Sender<String>, tx_err: Sender<String>,
                       style_resolve: &[(String, bool)], name_resolve: &[String],
-                      navi: &NaiveDateTime, chunk: &i32) -> PyResult<Vec<String>> {
+                      mut c_list: Vec<String>, width_len: &Option<usize>, chunk: &u32)
+                      -> PyResult<Vec<String>> {
+
     let mut buffer: Vec<u8> = Vec::new();
-    let mut c_list: Vec<String> = Vec::new();
-    let mut row_a: Vec<Option<StructCsv>> = Vec::new();
+    let mut row_a: Vec<Option<StructCsv>> = vec![None; width_len.unwrap()];
     let mut s: Option<StructCsv> = None;
-    let mut count: i32 = 0;
     let mut is_v = false;
-    let mut width_len: Option<usize> = None;
-    loop {
+    let navi = create_navi();
+    let v = loop {
         match xml_reader.read_event_into(&mut buffer) {
             Ok(Event::Start(e)) => {
                 match e.name().as_ref() {
@@ -378,7 +248,7 @@ fn common_xml_handler(mut xml_reader: Reader<&[u8]>,
                         match a {
                             Some(s) => {
                                 let res: PyResult<String> = s.clone().
-                                    get_value(navi, name_resolve,
+                                    get_value(&navi, name_resolve,
                                               style_resolve, tx_err.clone());
                                 if let Err(err) = &res {
                                     let msg = format!("unable to parse structual: {}", err);
@@ -391,14 +261,12 @@ fn common_xml_handler(mut xml_reader: Reader<&[u8]>,
                     }).collect::<PyResult<Vec<String>>>();
                     let j = i?.join(",");
                     c_list.push(j);
-                    count += 1;
-                    if count == *chunk {
+                    if c_list.len() == (*chunk).try_into().unwrap() {
                         let val = c_list.join("\n");
                         if let Err(e) = tx1.send(val) {
                             let msg = format!("failed to send message: {}", e);
                             let _ = tx_err.send(msg);
                         };
-                        count = 0;
                         c_list = Vec::new();
                     }
                     row_a = vec![None; width_len.unwrap()];
@@ -417,8 +285,26 @@ fn common_xml_handler(mut xml_reader: Reader<&[u8]>,
                 }
             }
             Ok(Event::Eof) => {
-                break;
+                break c_list;
             }
+            Err(e) => {
+                let msg = format!("something wrong: {}", e);
+                let _ = tx_err.send(msg);
+            }
+            _ => {}
+        }
+        buffer.clear();
+    };
+    Ok(v)
+}
+
+fn common_xml_length(mut xml_reader: Reader<&[u8]>, tx_err: Sender<String>)
+    -> PyResult<Option<usize>> {
+
+    let mut buffer: Vec<u8> = Vec::new();
+    let idx = loop {
+        match xml_reader.read_event_into(&mut buffer) {
+
             Err(e) => {
                 let msg = format!("something wrong: {}", e);
                 let _ = tx_err.send(msg);
@@ -437,14 +323,13 @@ fn common_xml_handler(mut xml_reader: Reader<&[u8]>,
                         msg
                     };
                     let idx_num = column_to_number(dim_tag_last.to_string())?;
-                    row_a = vec![None; idx_num];
-                    width_len = Some(idx_num);
+                    break idx_num;
                 }
             }
         }
         buffer.clear();
-    }
-    Ok(c_list)
+    };
+    Ok(Some(idx))
 }
 
 fn find_vec_index_rev<T: PartialEq>(vector: &[T], sub_vec: &[T]) -> Option<usize> {
