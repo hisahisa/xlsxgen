@@ -118,8 +118,9 @@ impl DataGenerator  {
                         width_len = common_xml_length(xml_reader, tx_err.clone())?;
                     }
                     let xml_reader = Reader::from_reader(x.as_ref());
-                    c_list = common_xml_handler(xml_reader, tx1.clone(), tx_err.clone(),
-                                                      &style_resolve, &name_resolve, c_list, &width_len, &chunk)?;
+                    let sender = (tx1.clone(), tx_err.clone());
+                    c_list = common_xml_handler(xml_reader, sender,
+                                                &style_resolve, &name_resolve, c_list, &width_len, &chunk)?;
                 }
             };
             let last_data = c_list2.join("\n");
@@ -154,12 +155,13 @@ impl DataGenerator  {
         let c_list: Vec<String> = Vec::new();
         let tx1 = self.pro.lock().unwrap().clone();
         let tx_err = self.e_pro.lock().unwrap().clone();
+        let sender = (tx1.clone(), tx_err.clone());
 
         let closure = move || -> PyResult<()> {
             let xml_reader = Reader::from_reader(content.as_ref());
             let width_len = common_xml_length(xml_reader, tx_err.clone())?;
             let xml_reader: Reader<&[u8]> = Reader::from_reader(content.as_ref());
-            let c_list = common_xml_handler(xml_reader, tx1.clone(), tx_err.clone(),
+            let c_list = common_xml_handler(xml_reader, sender,
                                             &style_resolve, &name_resolve, c_list, &width_len, &chunk)?;
             let last_data = c_list.join("\n");
             let last_msg = String::from("finish");
@@ -187,7 +189,7 @@ impl DataGenerator  {
 }
 
 fn common_xml_handler(mut xml_reader: Reader<&[u8]>,
-                      tx1: Sender<String>, tx_err: Sender<String>,
+                      sender: (Sender<String>, Sender<String>),
                       style_resolve: &[(String, bool)], name_resolve: &[String],
                       mut c_list: Vec<String>, width_len: &Option<usize>, chunk: &u32)
                       -> PyResult<Vec<String>> {
@@ -197,6 +199,7 @@ fn common_xml_handler(mut xml_reader: Reader<&[u8]>,
     let mut s: Option<StructCsv> = None;
     let mut is_v = false;
     let navi = create_navi();
+    let (tx1, tx_err) = sender;
     let v = loop {
         match xml_reader.read_event_into(&mut buffer) {
             Ok(Event::Start(e)) => {
